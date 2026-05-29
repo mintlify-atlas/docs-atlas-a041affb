@@ -1,7 +1,7 @@
 ---
-title: "IDE and Editor Support for Acton Projects"
+title: "IDE and Editor Support for TON Contract Development"
 sidebarTitle: "IDE Support"
-description: "Set up the TON VS Code extension or JetBrains plugin for Tolk syntax highlighting, LSP completion, acton check diagnostics, test runner integration, and DAP debugging."
+description: "Set up the TON VS Code extension or JetBrains plugin for Tolk syntax highlighting, LSP completion, inline lint diagnostics, test runner, and DAP debugging."
 ---
 
 Acton ships with first-class IDE integrations for both VS Code-based editors and JetBrains IDEs. Both integrations surface the same Acton capabilities — syntax highlighting, code completion, inline lint diagnostics with quick fixes, a native test runner, and source-level debugging — inside the editor's familiar UI. This guide covers installation and configuration for each environment.
@@ -91,7 +91,7 @@ The extension respects `[fmt]` and `[lint]` settings from `Acton.toml` automatic
   "ton.lint.enable": true,
 
   // Custom debug port (matches --debug-port in acton test)
-  "ton.debug.port": 4711
+  "ton.debug.port": 12345
 }
 ```
 
@@ -107,7 +107,7 @@ The extension registers the `tolk` DAP type. To attach the debugger to a running
       "type": "tolk",
       "request": "launch",
       "name": "Attach to Acton debugger",
-      "debugServer": 4711
+      "debugServer": 12345
     }
   ]
 }
@@ -116,7 +116,7 @@ The extension registers the `tolk` DAP type. To attach the debugger to a running
 Then start the test or script with `--debug` in a terminal, and press **F5** in VS Code:
 
 ```bash
-acton test tests/counter.test.tolk --filter "deploy" --debug --debug-port 4711
+acton test tests/counter.test.tolk --filter "deploy" --debug --debug-port 12345
 ```
 
 For the full debugger reference, see the [debugging guide](/guides/debug).

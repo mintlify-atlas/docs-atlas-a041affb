@@ -1,7 +1,7 @@
 ---
 title: "Getting Started with the Acton Local Development Node"
 sidebarTitle: "Getting Started"
-description: "Start and stop the local TON node, use the built-in faucet, configure startup accounts, and verify the API is live on localhost:3010."
+description: "Start and stop the local TON node, use the built-in faucet, configure startup accounts, and verify the API is live on localhost:5411."
 ---
 
 The `acton localnet` command group gives you a full local TON node that starts in seconds and requires no external accounts or tokens. Within a few commands you can have a running node, funded wallets, and a working TonCenter-compatible API endpoint at `http://127.0.0.1:<port>` — ready for deploys, transactions, and explorer browsing without touching testnet or mainnet.
@@ -14,7 +14,7 @@ Run the following command from any directory that contains an `Acton.toml`, or f
 acton localnet start
 ```
 
-By default the node listens on port **5411**, or on whatever port is set in `[localnet].port` inside `Acton.toml`. Pass `--port` to override it for the current run:
+By default the node listens on port **5411**, or on whatever port is set under `[localnet].port` inside `Acton.toml`. Pass `--port` to override it for the current run:
 
 ```bash
 acton localnet start --port 3010
@@ -81,7 +81,7 @@ acton localnet status --port 3010
 
 ## Requesting funds from the faucet
 
-The built-in faucet credits any address with local TON instantly. Use `acton localnet airdrop` (also available as `acton localnet faucet` in some builds) and pass the target address:
+The built-in faucet credits any address with local TON instantly. Use `acton localnet airdrop` and pass the target address:
 
 ```bash
 acton localnet airdrop UQA_ftKIJsHEAE_UgtFOUK15hPzycZooFuUr8duyY9T3kwwM
@@ -124,7 +124,7 @@ Instead of manually running `airdrop` every time you start the node, you can dec
 accounts = ["deployer", "user"]
 ```
 
-Each wallet name must be present in your wallet configuration (typically `wallets.toml` or a `[wallets]` section in `Acton.toml`):
+Each wallet name must be present in your `wallets.toml` file:
 
 ```toml
 [wallets.deployer]

@@ -1,7 +1,7 @@
 ---
 title: "Acton Testing APIs — Assert, Expect, and Fuzz Helpers"
 sidebarTitle: "Testing"
-description: "Complete reference for @acton/testing/assert, expect, and fuzz modules — write expressive, type-safe test assertions in Tolk."
+description: "Complete reference for @acton/testing/assert, expect, and fuzz modules — write expressive, type-safe test assertions in Tolk contracts."
 ---
 
 Acton's testing modules give you two complementary layers of assertion. The lower-level `@acton/testing/assert` module exposes static methods on the `Assert` struct — straightforward, no ceremony, useful for tight gas-measurement checks. On top of that, `@acton/testing/expect` wraps the same logic in a fluent `expect(value).toXxx()` API that produces rich error messages with automatic source-location tracking. A third module, `@acton/testing/fuzz`, adds helpers specifically for parameterised fuzz tests driven by the `@test.fuzz` annotation. All three modules are available only in test files (`*.test.tolk`).

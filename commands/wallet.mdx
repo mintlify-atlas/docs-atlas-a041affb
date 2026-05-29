@@ -1,7 +1,7 @@
 ---
-title: "acton wallet — TON wallet management"
+title: "acton wallet — manage TON wallets for development"
 sidebarTitle: "wallet"
-description: "Create, import, list, fund, sign, export, and remove TON wallets used by Acton deployment and scripting workflows."
+description: "Create, import, list, fund, sign, export, and remove TON wallets used across Acton deployment, scripting, verification, and library publishing workflows."
 ---
 
 `acton wallet` is your all-in-one interface for managing the cryptographic identities that power every Acton deployment, script, and verification flow. It handles the full lifecycle: generating fresh mnemonics, importing existing ones, querying on-chain balances, requesting faucet funds, signing external message bodies, exporting secrets, and cleaning up stale entries. Wallets are stored either locally in the current project's `wallets.toml` or globally in `global.wallets.toml`, and Acton merges both at runtime — local entries always win when the same name appears in both files.

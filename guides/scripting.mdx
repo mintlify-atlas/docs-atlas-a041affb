@@ -1,7 +1,7 @@
 ---
-title: "Running Tolk Scripts for Blockchain Interaction"
+title: "Running Tolk Scripts for TON Blockchain Interaction"
 sidebarTitle: "Scripting"
-description: "Write and run standalone Tolk scripts with acton script: wallet access, net.send(), argument passing, local emulation vs network broadcast, and deploy examples."
+description: "Write and run Tolk scripts with acton script: wallet access, net.send(), argument passing, local emulation vs network broadcast, and deploy examples."
 ---
 
 Acton lets you run individual Tolk files as standalone executable scripts through the `acton script` command. Scripts share the same standard library as tests — you can deploy contracts, send messages, call get methods, and query chain state — but instead of a test harness, scripts define a `main()` function as their entry point. The same script file runs against a local emulator by default and broadcasts to testnet or mainnet when you pass `--net`.

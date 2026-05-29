@@ -1,5 +1,5 @@
 ---
-title: "acton new — create a TON project from a template"
+title: "acton new — create a new TON smart contract project"
 sidebarTitle: "new"
 description: "Scaffold a new Acton project with acton new. Covers --template, --app, --hooks, --agents, --overwrite, --license, and all available built-in templates."
 ---
@@ -53,6 +53,10 @@ acton new --templates        # list available templates as JSON
 ## Templates
 
 <Tabs>
+  <Tab title="empty">
+    A minimal project skeleton with an empty contract, no tests or scripts.
+    Use this as a blank canvas when none of the other templates fit your use case.
+  </Tab>
   <Tab title="counter">
     A minimal counter contract with a wrapper, tests, a deployment script, and
     a CI workflow. The go-to starting point for learning Acton and for small
@@ -70,19 +74,7 @@ acton new --templates        # list available templates as JSON
     A Wallet V5 extension contract and subscription example. Includes vendored
     Wallet V5 sources for end-to-end testing, wrappers for both extension and
     wallet, integration tests for install/payment/cancellation flows, and
-    deploy/install/delete scripts.
-  </Tab>
-  <Tab title="counter-app">
-    The counter template with the full TypeScript app layout pre-enabled.
-    Equivalent to `--template counter --app`.
-  </Tab>
-  <Tab title="jetton-app">
-    The jetton template with the full TypeScript app layout pre-enabled.
-    Equivalent to `--template jetton --app`.
-  </Tab>
-  <Tab title="nft-app">
-    The NFT template with the full TypeScript app layout pre-enabled.
-    Equivalent to `--template nft --app`.
+    deploy/install/delete scripts. Also accepts the alias `w5-plugin`.
   </Tab>
 </Tabs>
 
@@ -90,7 +82,8 @@ acton new --templates        # list available templates as JSON
   All built-in templates support `--app`. With `--app`, Acton adds a Vite-based
   React app under `app/`, generated TypeScript wrappers under `wrappers-ts/`,
   and top-level `package.json` / `package-lock.json` files. Run `npm ci` before
-  using frontend commands.
+  using frontend commands. There are no separate `counter-app`, `jetton-app`, or
+  `nft-app` template names — use `--template counter --app` (etc.) instead.
 </Note>
 
 ### TypeScript app layout

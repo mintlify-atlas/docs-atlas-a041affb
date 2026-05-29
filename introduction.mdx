@@ -54,7 +54,7 @@ TON contract development historically required assembling several independent to
 | Format Tolk files | `acton fmt` |
 | Deploy via script | `acton script contracts/scripts/deploy.tolk --net testnet` |
 | Verify on-chain | `acton verify Counter --net testnet --address <ADDR>` |
-| Manage wallets | `acton wallet new --name deployer --airdrop --version v5r1` |
+| Manage wallets | `acton wallet new --name deployer --local --airdrop --version v5r1` |
 | Start local node | `acton localnet start` |
 | Update the CLI | `acton up` |
 
@@ -88,5 +88,5 @@ acton wallet list --help
 ```
 
 <Tip>
-  If something looks wrong with resolved paths or the standard library, run `acton doctor` for a diagnostic report before filing a bug.
+  If something looks wrong with resolved paths or the standard library, run `acton doctor` for a diagnostic report before filing a bug. Shell completions for Bash, Zsh, Fish, Elvish, PowerShell, and Nushell can be enabled with `acton completions <shell>`.
 </Tip>

@@ -1,7 +1,7 @@
 ---
 title: "Acton Emulation APIs — Testing, Network, Scripts, Config"
 sidebarTitle: "Emulation"
-description: "Full reference for @acton/emulation/* modules — blockchain emulation, message sending, wallet integration, and config control."
+description: "Full reference for @acton/emulation/* modules — blockchain emulation, message sending, wallet integration, and blockchain config control."
 ---
 
 Acton's emulation layer makes it possible to run the full lifecycle of a TON smart contract — deploy, send messages, inspect state — without touching a real network. The same code can also target testnet or mainnet by adding `--net` to the CLI invocation. Four modules collaborate to provide this capability: `testing` provides the emulated blockchain context (treasury accounts, time control, snapshots); `network` is the unified message-sending layer that works in both emulation and broadcast modes; `scripts` supplies the wallet-based primitives needed by deployment scripts; and `config` exposes the blockchain configuration parameters (gas prices, storage fees, forward fees) so that tests can simulate different network conditions.
@@ -17,6 +17,15 @@ This module provides the test-only API for controlling the emulated blockchain e
 ```tolk
 import "@acton/emulation/testing"
 ```
+
+### C7 Register Access
+
+```tolk
+fun testing.getC7OutsideContract(): tuple
+fun testing.setC7OutsideContract(c7: tuple): void
+```
+
+Read or write the TVM control register C7 from outside a contract execution context. Useful for inspecting or modifying the context tuple in tests.
 
 ### Treasury
 
@@ -107,6 +116,13 @@ fun testing.runTickTock(onAccount: address, isTock: bool): SendResultList
 ```tolk
 fun testing.loadAndRegisterLibrary(hash: string): bool
 fun testing.registerLibrary(libCell: cell): void
+```
+
+### Out Actions
+
+```tolk
+// Returns out actions from the control register C5 at that moment
+fun testing.outActions(): OutActionList
 ```
 
 ---
@@ -362,6 +378,7 @@ Config changes are staged in a local `BlockchainConfigMap` and only committed to
 ```tolk
 import "@acton/emulation/testing"
 import "@acton/emulation/config"
+import "@acton/testing/expect"
 
 get fun `test zero-gas environment`() {
     var config = testing.getConfig();
@@ -377,7 +394,7 @@ get fun `test zero-gas environment`() {
     config.setStoragePrices(storagePrices);
 
     val ok = testing.setConfig(config);
-    Assert.equal(ok, true, "config update failed");
+    expect(ok).toBeTrue();
 
     // subsequent transactions now pay zero storage fees
 }

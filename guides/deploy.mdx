@@ -1,7 +1,7 @@
 ---
-title: "Deploying TON Smart Contracts with Acton Scripts"
+title: "Deploying TON Smart Contracts via Acton Script Command"
 sidebarTitle: "Deploy"
-description: "Deploy Tolk contracts using scripts: deployment pattern, waitForFirstTransaction/waitForTrace, --net testnet/mainnet, TON Connect, and a complete deploy.tolk example."
+description: "Deploy Tolk contracts via scripts: waitForFirstTransaction, waitForTrace, --net testnet/mainnet, TON Connect, and a complete deploy.tolk example."
 ---
 
 Acton does not have a dedicated `acton deploy` command. Instead, contracts are deployed through Tolk scripts — the same `acton script` mechanism used for any blockchain interaction. This design keeps deployment logic explicit, version-controlled, and testable: you can run the exact same deployment script against a local emulator, testnet, or mainnet simply by changing a flag. The local emulator matches the Acton test environment, so deployment scripts are fully debuggable before touching any public network.

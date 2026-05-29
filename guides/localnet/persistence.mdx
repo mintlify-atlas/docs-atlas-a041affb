@@ -123,23 +123,14 @@ A restored snapshot brings back not just contract state and balances but also ex
 
 ## Configuring persistence in `Acton.toml`
 
-Set default persistence options in `Acton.toml` so you do not need to pass flags on every invocation. CLI flags override these values when provided:
+Set the default port in `Acton.toml` to avoid passing `--port` on every invocation. Note that `--db-path`, `--load-state`, and `--dump-state` are CLI-only flags and cannot be set in `Acton.toml`:
 
 ```toml
 [localnet]
-port = 3010
-db-path = ".acton/localnet.db"
+port = 5411
 ```
 
-For snapshot-based workflows you can set the paths directly:
-
-```toml
-[localnet]
-port = 3010
-# No db-path — use snapshot round-trip instead
-```
-
-Then always start with the explicit flags:
+For snapshot-based workflows, always pass the flags explicitly:
 
 ```bash
 acton localnet start \

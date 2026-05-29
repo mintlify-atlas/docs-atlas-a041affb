@@ -55,6 +55,8 @@ The Tolk stdlib is **on-chain code** — it compiles to TVM instructions. Every 
 
 ```tolk
 // `common` is auto-imported — no explicit import needed
+import "@stdlib/strings"
+import "@stdlib/gas-payments"
 
 fun onInternalMessage(in: InMessage) {
     var storage = MyStorage.fromCell(contract.getData());
@@ -63,11 +65,9 @@ fun onInternalMessage(in: InMessage) {
     storage.balances.set(in.senderAddress, ton("1.0"));
 
     // string formatting from @stdlib/strings
-    import "@stdlib/strings"
     val label = int.toDecimalString(storage.count);
 
     // gas operations from @stdlib/gas-payments
-    import "@stdlib/gas-payments"
     val fee = calculateGasFee(BASECHAIN, getGasConsumedAtTheMoment());
 
     contract.setData(storage.toCell());

@@ -1,7 +1,7 @@
 ---
-title: "acton verify — TON Verifier source verification"
+title: "acton verify — publish contract source to TON Verifier"
 sidebarTitle: "verify"
-description: "Submit your Tolk contract source to TON Verifier so anyone can confirm the deployed bytecode matches the published source code."
+description: "Submit your Tolk contract source to TON Verifier so anyone can confirm the deployed bytecode matches your published source code on-chain."
 ---
 
 `acton verify` publishes your Tolk contract source code to the TON Verifier service, creating a permanent public link between a deployed contract address and its human-readable source. Once verified, any blockchain explorer that integrates TON Verifier will show a verified badge and the full source alongside the contract. The command handles the entire flow: compiling locally, uploading sources to the verifier backend, collecting the required signatures, and optionally submitting the final on-chain verification transaction.

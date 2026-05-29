@@ -1,7 +1,7 @@
 ---
-title: "Publishing and Using On-Chain Tolk Libraries in Acton"
+title: "Publishing and Using On-Chain TON Libraries in Acton"
 sidebarTitle: "Libraries"
-description: "Publish, fetch, inspect, and top up on-chain TON libraries with acton library: libraries.toml tracking, library_ref dependency kind, deduplication, and cost considerations."
+description: "Publish, fetch, inspect, and top up on-chain TON libraries with acton library: libraries.toml tracking, library_ref dependency kind, and storage costs."
 ---
 
 On-chain libraries let the TON blockchain store contract code once on the masterchain and reuse it across multiple contracts, cutting storage costs compared to embedding the same bytecode in every account. Acton provides `acton library` commands to publish, inspect, top up, and fetch libraries, plus `libraries.toml` for tracking deployed library metadata locally. This page covers the full publishing workflow and how to reference deployed libraries from contracts in `Acton.toml`.
@@ -142,14 +142,20 @@ acton library fetch <LIBRARY_HASH> --disasm -o library.tasm
 
 ## The libraries.toml file
 
-Acton tracks deployed libraries in `libraries.toml` (local) or `global.libraries.toml` (global). Each entry records the name, hash, code, and account address:
+Acton tracks deployed libraries in `libraries.toml` (local) or `global.libraries.toml` (global). Each entry records the name, hash, code, account address, and storage metadata:
 
 ```toml title="libraries.toml"
-[Math]
-name    = "Math"
-hash    = "b993c68..."
-code    = "te6cckEBAQEAAgAAAEysuc0="
-account = "Ef9c..."
+[libraries.Math]
+name                 = "Math"
+hash                 = "b993c68..."
+code                 = "te6cckEBAQEAAgAAAEysuc0="
+account              = "Ef9c..."
+duration             = 31536000
+network              = "mainnet"
+timestamp            = "2024-01-01T00:00:00Z"
+last_topup_timestamp = "2024-01-01T00:00:00Z"
+bits                 = 128
+cells                = 1
 ```
 
 `acton init` manages a `global.libraries.toml` symlink in the project root, similar to how it handles global wallets.

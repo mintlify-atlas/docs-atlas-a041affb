@@ -1,7 +1,7 @@
 ---
 title: "Debugging Tolk Contracts with Acton's DAP Debugger"
 sidebarTitle: "Debug"
-description: "Set breakpoints in Tolk, step through contract execution, inspect TVM registers and locals using acton test --debug or acton script --debug and the DAP protocol."
+description: "Set breakpoints in Tolk, step through contract execution, and inspect TVM registers using acton test --debug or acton script --debug with the DAP protocol."
 ---
 
 Acton's source-level debugger lets you pause Tolk contract execution at any line, inspect local variables and TVM registers in structured form, evaluate expressions, and step through message handler logic — all from a standard editor. The debugger speaks the [Debug Adapter Protocol (DAP)](https://microsoft.github.io/debug-adapter-protocol/), so it integrates with VS Code, JetBrains, and any other DAP-capable client without requiring a special debug build or modified contract code.
@@ -35,17 +35,17 @@ acton test tests/counter.test.tolk --filter "deploy" --debug
 acton script scripts/deploy.tolk --debug
 
 # Debug a historical on-chain transaction
-acton retrace <HASH> --contract Counter --debug --debug-port 4711
+acton retrace <HASH> --contract Counter --debug --debug-port 12345
 ```
 
 Acton prints a message when the debug server is ready, then waits for an editor to attach before execution begins.
 
 ### Choosing a port
 
-The default debug port is `4711`. Override it with `--debug-port`:
+The default debug port is `12345`. Override it with `--debug-port`:
 
 ```bash
-acton test tests/counter.test.tolk --debug --debug-port 4711
+acton test tests/counter.test.tolk --debug --debug-port 12345
 ```
 
 Use different ports when running multiple debug sessions simultaneously.
@@ -70,7 +70,7 @@ Create or open `.vscode/launch.json` and add:
       "type": "tolk",
       "request": "launch",
       "name": "Attach to Acton",
-      "debugServer": 4711
+      "debugServer": 12345
     }
   ]
 }
@@ -81,7 +81,7 @@ Create or open `.vscode/launch.json` and add:
 Run the command you want to debug in a terminal:
 
 ```bash
-acton test tests/counter.test.tolk --filter "deploy" --debug --debug-port 4711
+acton test tests/counter.test.tolk --filter "deploy" --debug --debug-port 12345
 ```
 
 ### Attach from VS Code

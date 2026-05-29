@@ -1,7 +1,7 @@
 ---
-title: "Acton.toml Complete Configuration Reference"
+title: "Acton.toml Complete Project Configuration Reference"
 sidebarTitle: "Acton.toml"
-description: "Full reference for every section and field in Acton.toml: package, toolchain, contracts, build, test, lint, fmt, localnet, scripts, import-mappings, and networks."
+description: "Complete Acton.toml reference covering package, toolchain, contracts, build, test, lint, fmt, localnet, scripts, import-mappings, and networks sections."
 ---
 
 `Acton.toml` is the project manifest for every Acton project. It defines package metadata, declares smart contracts, configures the build and test systems, sets lint and formatter defaults, registers deployment networks, and maps import aliases. The file conforms to the [TOML 1.1 specification](https://toml.io/en/v1.1.0). Every relative path in the manifest is resolved from the project root — the directory that contains `Acton.toml`.
@@ -163,7 +163,7 @@ Configures default output locations for `acton wrapper`. CLI flags override thes
 
 | Field | Type | Default | Description |
 |:------|:-----|:--------|:------------|
-| `output-dir` | string | `wrappers/` | Default directory for generated Tolk wrappers. |
+| `output-dir` | string | — | Default directory for generated Tolk wrappers. |
 | `generate-test` | boolean | `false` | Generate a Tolk test stub by default. |
 | `test-output-dir` | string | — | Default directory for generated test stubs. |
 
@@ -254,6 +254,7 @@ Configures the behaviour of `acton test`. CLI flags override these values for a 
 | `fail-on-diff` | boolean | `false` | Exit non-zero when profiling differs from baseline snapshot. |
 | `ui` | boolean | `false` | Enable the browser Test UI server. |
 | `ui-port` | integer | `12344` | Port for the browser Test UI server. |
+| `mutation` | object | — | Mutation testing defaults under `[test.mutation]` (see below). |
 
 ### `[test.coverage]`
 

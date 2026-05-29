@@ -1,7 +1,7 @@
 ---
-title: "Managing Wallets for TON Contract Deployment"
+title: "Managing TON Wallets for Acton Contract Deployment"
 sidebarTitle: "Wallets"
-description: "Create, import, fund, and use wallets with acton wallet: local vs global storage, wallet versions, wallets.toml config, testnet airdrop, and security best practices."
+description: "Create, import, fund, and use wallets with acton wallet: local vs global storage, wallet versions, wallets.toml config, and testnet airdrop."
 ---
 
 Acton's wallet management system lets you create, import, inspect, fund, and use TON wallets directly from the CLI. Wallets are used by deployment and interaction scripts when broadcasting to testnet or mainnet via `--net`. Without `--net`, scripts use virtual treasury wallets backed by the local emulator — so you can develop and test scripts without ever configuring a real wallet. When you're ready to go live, `acton wallet` handles the full lifecycle from creation to funded deployment.
@@ -18,7 +18,7 @@ acton wallet new --name deployer --local
 acton wallet new --name shared --global
 ```
 
-If `--name` or `--version` is omitted, Acton prompts interactively. The most common wallet versions are:
+If `--name` or `--version` is omitted, Acton prompts interactively. Pass `--secure` to control mnemonic storage: `--secure` stores the mnemonic in the native OS keyring (the default when keyring is available), `--secure false` stores it as plain text. The most common wallet versions are:
 
 | Version | Description |
 |---|---|

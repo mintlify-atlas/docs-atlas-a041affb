@@ -1,7 +1,7 @@
 ---
 title: "Acton Standard Library — Complete Module Reference"
 sidebarTitle: "Overview"
-description: "All Acton stdlib modules available via @acton/ imports — testing, emulation, build, io, crypto, fmt, fs, env, and prompts."
+description: "All Acton stdlib modules available via @acton/ imports — testing, emulation, build, io, crypto, fmt, fs, env, prompts, ffi, and more."
 ---
 
 Acton ships a built-in standard library that scripts and tests can access using the `@acton/` import prefix. When Acton initialises a project it writes the library source into a hidden `.acton/` directory at the project root; the compiler then maps every `import "@acton/..."` statement to the corresponding `.tolk` file in that directory. Because the library is plain Tolk code you can inspect, extend, or vendor it exactly like any other source file.
@@ -56,6 +56,9 @@ The `@acton/` prefix is resolved at **compile time** by the Acton CLI — it is 
   </Card>
   <Card title="@acton/prompts" href="/stdlib/io">
     Interactive CLI prompt helpers — useful for deployment scripts that need user confirmation.
+  </Card>
+  <Card title="@acton/ffi" href="/stdlib/overview">
+    Low-level FFI namespace for host-provided functions implemented via `EXTCALL`. Most user code should use higher-level modules instead of calling `ffi.*` directly.
   </Card>
 </CardGroup>
 

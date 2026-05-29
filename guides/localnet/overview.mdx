@@ -4,7 +4,7 @@ sidebarTitle: "Overview"
 description: "Run a full TON-compatible local node with a built-in explorer, faucet, fork mode, TonCenter API, and reproducible state workflows."
 ---
 
-Acton ships a complete local TON development node that you can start with a single command. It runs a TonCenter-compatible HTTP server, bundles an explorer UI you can open in any browser, provides a built-in faucet, and supports forking directly from testnet or mainnet state — all without touching a remote network or managing external infrastructure. Every aspect of the node's behaviour, from its port and persistence mode to which accounts get bootstrapped at startup, is configurable through `Acton.toml` or CLI flags.
+Acton ships a complete local TON development node that you can start with a single command. It runs a TonCenter-compatible HTTP server, bundles an explorer UI you can open in any browser, provides a built-in faucet, and supports forking directly from testnet or mainnet state — all without touching a remote network or managing external infrastructure. Every aspect of the node's behaviour, from its port and persistence mode to which accounts get bootstrapped at startup, is configurable through `Acton.toml` or CLI flags. The default port is **5411**.
 
 ## Why use the local node?
 
@@ -34,7 +34,7 @@ The explorer reads blockchain data from `/api/v2` and `/api/v3`. It also uses tw
 The local node exposes TonCenter-compatible routes under `/api/v2` and `/api/v3`. Most `GET` endpoints used in typical development workflows are available. `POST /api/v2/sendBoc`, `POST /api/v3/message`, and `POST /api/v2/runGetMethod` are all supported, so existing SDKs and tooling that target TonCenter can point at `http://127.0.0.1:<port>` and work without modification.
 
 <Note>
-  A small number of TonCenter endpoints — such as `getWalletInformation`, `getTokenData`, and block-proof routes — are not implemented in the local node. See the [API compatibility page](/guides/localnet/getting-started) for the full coverage matrix.
+  A small number of TonCenter endpoints — such as `getWalletInformation`, `getTokenData`, and block-proof routes — are not implemented in the local node.
 </Note>
 
 ## Control API

@@ -1,7 +1,7 @@
 ---
-title: "acton library — on-chain TON library management"
+title: "acton library — manage on-chain TON code libraries"
 sidebarTitle: "library"
-description: "Publish Tolk contracts as reusable on-chain TON libraries, fetch their code, inspect storage runway, and top up their accounts."
+description: "Publish Tolk contracts as reusable on-chain TON libraries, fetch their bytecode, inspect storage runway, and top up their accounts."
 ---
 
 `acton library` manages the lifecycle of TON on-chain libraries — shared code cells stored in a special library account that multiple contracts can reference by hash. Publishing a contract as a library avoids duplicating bytecode across deployments: contracts include a library reference cell instead of the full code, reducing deploy costs and making upgrades easier. Acton tracks published library metadata in `libraries.toml` (project-local) or `global.libraries.toml` (shared across projects), so you can inspect and top up libraries long after publication.

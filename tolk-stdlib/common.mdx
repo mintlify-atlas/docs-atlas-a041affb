@@ -91,6 +91,7 @@ struct contract   // built-in struct with static methods only
 
 fun contract.getAddress(): address               // address of this contract
 fun contract.getOriginalBalance(): coins         // balance at start of compute phase
+fun contract.getOriginalBalanceWithExtraCurrencies(): [coins, ExtraCurrenciesMap]  // balance + extra currencies
 fun contract.getData(): cell                     // persistent storage cell (c4)
 fun contract.setData(c: cell): void              // update persistent storage
 fun contract.getCode(): cell                     // contract code cell
@@ -338,6 +339,7 @@ const SEND_MODE_BOUNCE_ON_ACTION_FAIL = 16
 const SEND_MODE_DESTROY = 32
 const SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE = 64
 const SEND_MODE_CARRY_ALL_BALANCE = 128
+const SEND_MODE_ESTIMATE_FEE_ONLY = 1024
 ```
 
 ### createMessage Example

@@ -110,7 +110,7 @@ docker run --rm \
 Because the image uses `acton` as its entrypoint, replace `build` with any other subcommand such as `test`, `check`, or `fmt --check`.
 
 <Note>
-  Replace `<version>` with the specific release tag you want to use, for example `0.1.0`. Pinning the version in CI ensures reproducible builds.
+  Replace `<version>` with the specific release tag you want to use, for example `1.1.0`. Pinning the version in CI ensures reproducible builds.
 </Note>
 
 ## Verifying the installation
@@ -122,7 +122,7 @@ acton --version
 The output should be a single version line, for example:
 
 ```
-acton 0.1.0
+acton 1.1.0
 ```
 
 If the command is not found, confirm that the directory containing the `acton` binary is listed in `$PATH` and that you opened a new shell session after installation.
@@ -187,5 +187,5 @@ Acton is stable on the latest numbered GitHub release. The first-class platform 
 For Linux, the documented baseline is **Ubuntu 20.04 or newer**. `trunk` builds, WSL installs, and other source-built targets are beta or best-effort surfaces — their validation is limited and regressions may occur.
 
 <Note>
-  Shell completions for Bash, Zsh, Fish, Elvish, and Nushell can be enabled with `acton completions <shell>`. See `acton completions --help` for details.
+  Shell completions for Bash, Zsh, Fish, Elvish, PowerShell, and Nushell can be enabled with `acton completions <shell>`. See `acton completions --help` for details.
 </Note>

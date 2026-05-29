@@ -1,7 +1,7 @@
 ---
-title: "Verifying Deployed TON Contracts with Acton"
+title: "Verify Deployed TON Smart Contracts with acton verify"
 sidebarTitle: "Verify"
-description: "Use acton verify to prove that deployed bytecode matches Tolk source, submit verification to TON Verifier on testnet or mainnet, and troubleshoot bytecode mismatches."
+description: "Use acton verify to prove deployed bytecode matches Tolk source, submit to TON Verifier on testnet or mainnet, and troubleshoot bytecode mismatches."
 ---
 
 Source code verification proves that the bytecode deployed at a specific contract address was produced from the Tolk source files in the current Acton project. When verification succeeds, anyone can inspect the source on [TON Verifier](https://verifier.ton.org) and independently confirm that the deployed code behaves as described. Acton handles the entire flow: it compiles the contract locally, uploads the source package to the TON Verifier backend, collects the required verifier signatures, and can broadcast the final on-chain verification transaction.
