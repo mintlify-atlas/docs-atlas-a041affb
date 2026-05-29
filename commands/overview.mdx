@@ -1,0 +1,156 @@
+---
+title: "Acton CLI commands — complete reference overview"
+sidebarTitle: "Overview"
+description: "Full index of every Acton CLI command, global flags (--project-root, --manifest-path, --color), environment variables, and help surfaces in one place."
+---
+
+Acton is an all-in-one TON blockchain development toolkit. Every workflow —
+scaffolding a new project, compiling contracts, running tests, broadcasting
+scripts, linting, formatting, and managing wallets — is driven by a single
+`acton` binary. This page lists every command, explains the flags that apply to
+all of them, and shows how to reach detailed help.
+
+## Commands
+
+<CardGroup cols={2}>
+  <Card title="new" href="/commands/new" icon="folder-plus">
+    Create a new project from a template (counter, jetton, NFT, W5-extension, and more).
+  </Card>
+  <Card title="init" href="/commands/init" icon="gear">
+    Add Acton support to an existing directory or create a TypeScript dapp scaffold.
+  </Card>
+  <Card title="build" href="/commands/build" icon="hammer">
+    Compile one contract or every contract declared in `Acton.toml`.
+  </Card>
+  <Card title="test" href="/commands/test" icon="flask">
+    Discover and run `.test.tolk` files with coverage, mutation testing, and more.
+  </Card>
+  <Card title="check" href="/commands/check" icon="magnifying-glass">
+    Lint Tolk sources for errors, style issues, and apply auto-fixes.
+  </Card>
+  <Card title="fmt" href="/commands/fmt" icon="align-left">
+    Format Tolk source files in-place or validate formatting in CI.
+  </Card>
+  <Card title="script" href="/commands/script" icon="play">
+    Execute a standalone Tolk script in emulation or broadcast it to a network.
+  </Card>
+  <Card title="wrapper" href="/commands/wrapper" icon="wand-magic-sparkles">
+    Generate Tolk or TypeScript wrappers and test stubs from contract ABI.
+  </Card>
+</CardGroup>
+
+### All commands
+
+| Command | Arguments | Description |
+|---------|-----------|-------------|
+| `new` | `[PATH]` | Create a new project from a template |
+| `init` | | Add Acton support to the current directory |
+| `build` | `[CONTRACT_NAME]` | Compile one contract or every contract |
+| `test` | `[PATH]` | Run tests from a file or directory |
+| `check` | `[TARGET]` | Check project Tolk sources for errors |
+| `fmt` | `[PATHS...]` | Format project Tolk source files |
+| `script` | `<PATH> [ARGS...]` | Run a standalone Tolk script file |
+| `wrapper` | `<CONTRACT_NAME>` | Generate contract wrappers and test stubs |
+| `run` | `<SCRIPT> [ARGS...]` | Run a named script from `Acton.toml` |
+| `compile` | `<PATH>` | Compile one Tolk source into TVM code |
+| `disasm` | `[BOC_FILE]` | Disassemble TVM code into TASM |
+| `wallet` | `<COMMAND>` | Manage project and global wallets |
+| `rpc` | `<COMMAND>` | Inspect remote accounts and contracts |
+| `verify` | `[CONTRACT_NAME]` | Verify contract source on TON Verifier |
+| `library` | `<COMMAND>` | Publish and manage on-chain libraries |
+| `retrace` | `<TX_HASH>` | Replay a transaction trace by hash |
+| `hooks` | `<COMMAND>` | Install and manage project Git hooks |
+| `doc` | `tvm <QUERY...>` | Look up TVM reference documentation |
+| `up` | | Install or update Acton CLI releases |
+| `doctor` | | Inspect the resolved project setup |
+| `func2tolk` | `<PATH>` | Convert FunC sources into Tolk code |
+| `completions` | `<SHELL>` | Generate shell completion scripts |
+| `help` | `[COMMAND]` | Show top-level or command-specific help |
+
+---
+
+## Global flags
+
+These flags are accepted by every Acton command.
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--project-root <PATH>` | path | Set the project root explicitly. Mutually exclusive with `--manifest-path`. |
+| `--manifest-path <PATH>` | path | Path to `Acton.toml`. Changes which manifest is loaded without altering project-root resolution. Mutually exclusive with `--project-root`. |
+| `--color <WHEN>` | `auto` \| `always` \| `never` | Control coloured output. Default: `auto`. |
+| `-v`, `--version` | flag | Print the installed Acton version. |
+| `-h`, `--help` | flag | Print help for the current command. |
+
+### When to use `--project-root` vs `--manifest-path`
+
+Use `--project-root` when you are running `acton` from outside the project
+directory and want outputs such as `build/`, `gen/`, `test-results/`, and
+`.acton/` to be written into that project.
+
+Use `--manifest-path` when the manifest lives at a non-default location but
+project-root resolution should still follow the normal ancestor-search logic.
+
+```bash
+# Run tests as if you were inside ../my-project
+acton --project-root ../my-project test
+
+# Load config from another manifest without changing root resolution
+acton --manifest-path /ci/build/Acton.toml wallet new --local
+```
+
+---
+
+## Global environment variables
+
+| Variable | Effect |
+|----------|--------|
+| `ACTON_DISABLE_AUTO_STDLIB=1` | Skip the automatic `.acton/tolk-stdlib` refresh before commands that need project support. Explicit `acton init --stdlib-only` still updates `.acton/`. |
+| `ACTON_USE_PROXY=1` | Allow Acton's HTTP clients to read `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and system proxy settings. Proxy detection is disabled by default to avoid macOS sandbox crashes. |
+
+---
+
+## Help surfaces
+
+Acton ships two distinct help surfaces — use them intentionally:
+
+<Tabs>
+  <Tab title="Root overview">
+    ```bash
+    acton --help
+    # or
+    acton -h
+    ```
+
+    Prints the root overview with the full command list and global options.
+  </Tab>
+  <Tab title="Command manual">
+    ```bash
+    acton help <command>
+    # examples
+    acton help test
+    acton help build
+    acton help wrapper
+    ```
+
+    Opens the long manual for a top-level command. Manuals include detailed
+    behavior notes, configuration keys, environment variables, and examples
+    beyond what fits in the short help.
+  </Tab>
+  <Tab title="Short flag help">
+    ```bash
+    acton build --help
+    acton wallet list --help
+    acton localnet start --help
+    ```
+
+    Nested subcommands and most flags surface their short description with
+    `--help` on the command itself.
+  </Tab>
+</Tabs>
+
+<Tip>
+  When something about the local environment looks wrong, run `acton doctor`
+  before digging into individual command manuals. It prints the resolved
+  project root, manifest path, toolchain version, and other environment details
+  in one pass.
+</Tip>

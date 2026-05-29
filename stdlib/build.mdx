@@ -1,0 +1,127 @@
+---
+title: "Acton Build Module — Load Contract Code at Runtime"
+sidebarTitle: "Build"
+description: "Reference for @acton/build — compile or load contract code cells at runtime in scripts and tests, with flexible path and cache control."
+---
+
+The `@acton/build` module exposes a single host-assisted function, `build()`, that returns the code cell of a compiled Tolk contract. Because it runs inside the Acton host — not inside TVM — it can drive the full Acton build pipeline, consult an in-memory cache, read from the shared disk cache under `build/cache`, or simply decode a pre-built `.boc` file. This makes `build()` the standard way to get a contract's code cell in both deployment scripts and emulation tests without hard-coding paths or manually invoking the compiler.
+
+<Note>
+`build()` returns only the **code cell**. It does not deploy the contract. Pair it with a state-init helper (from your generated wrapper or manually via `ContractState`) to produce a deployable `StateInit`.
+</Note>
+
+## Function Signature
+
+```tolk
+fun build(name: string, path: string = ""): cell
+```
+
+## Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | `string` | The contract name as declared in `Acton.toml` under `[contracts.<name>]`. This is the key, not the `display-name`. |
+| `path` | `string` | Optional explicit path. When non-empty, `Acton.toml` lookup is skipped entirely. |
+
+## Resolution Modes
+
+<Steps>
+  <Step title="Name lookup (default)">
+    When `path` is omitted, Acton looks up `name` in `Acton.toml`. If found, it compiles the resolved source (or reads the resolved `.boc`) and returns the code cell.
+
+    ```tolk
+    val code = build("Counter");
+    ```
+  </Step>
+  <Step title="Explicit Tolk file">
+    When `path` ends with `.tolk`, Acton compiles that file directly, bypassing the manifest. Useful when a contract lives at a non-standard path.
+
+    ```tolk
+    val code = build("Counter", "contracts/legacy/OldCounter.tolk");
+    ```
+  </Step>
+  <Step title="Pre-built BoC file">
+    When `path` ends with `.boc`, Acton skips compilation entirely and decodes the code cell from the file. Cache is not populated or consulted in this mode.
+
+    ```tolk
+    val code = build("Counter", "build/Counter.boc");
+    ```
+  </Step>
+</Steps>
+
+## Caching Behaviour
+
+- **In-memory cache** — within a single `acton test` or `acton run` invocation, the same name resolves to the same cell without recompiling.
+- **Disk cache** — compiled cells are written to `build/cache` and reused across runs when the source has not changed.
+- **`.types.tolk` files** — compiled with no entrypoint required, so interface-only files can be loaded explicitly.
+- **`.boc` files** — bypass both caches entirely; Acton reads and decodes the file each call.
+
+## Path Resolution
+
+All relative paths are resolved from the **project root** (the directory containing `Acton.toml`).
+
+## Usage in Tests
+
+```tolk
+import "@acton/build"
+import "@acton/emulation/testing"
+import "@acton/emulation/network"
+
+get fun `test deploy counter`() {
+    val deployer = testing.treasury("deployer");
+
+    // 1. Compile (or load from cache) the contract code
+    val code = build("Counter");
+
+    // 2. Register the code cell for human-readable trace output
+    net.registerCodeCell(code, "Counter");
+
+    // 3. Produce a StateInit using your generated wrapper
+    val counter = Counter.fromStorage({ id: 1, counter: 0 });
+
+    // 4. Deploy
+    val txs = net.send(deployer.address, counter.deploy(deployer.address, ton("0.05")));
+    expect(txs).toHaveSuccessfulDeploy({ to: counter.address });
+}
+```
+
+## Usage in Scripts
+
+```tolk
+import "@acton/build"
+import "@acton/emulation/scripts"
+import "@acton/emulation/network"
+import "@acton/io"
+
+fun main() {
+    val deployer = scripts.wallet("deployer");
+
+    // Load from a committed .boc for a reproducible mainnet deployment
+    val code = build("JettonMinter", "build/JettonMinter.boc");
+    println("Code hash: {:x}", code.hash());
+
+    val minter = JettonMinter.fromStorage({
+        totalSupply: 0,
+        adminAddress: deployer.address,
+        content: jettonContent,
+        jettonWalletCode: build("JettonWallet"),
+    });
+
+    val result = net.send(deployer.address, minter.deploy(deployer.address, ton("0.1")));
+    result.waitForFirstTransaction();
+    println("Minter deployed at {}", minter.address);
+}
+```
+
+## Error Handling
+
+| Scenario | Behaviour |
+|----------|-----------|
+| Contract name not found in `Acton.toml` | Runtime failure with descriptive error |
+| Tolk source fails to compile | Compilation error surfaced at call site |
+| `.boc` file missing or corrupt | Runtime failure with file-read / BoC decode error |
+| `path` is an empty string | Falls back to name-lookup mode |
+
+<Warning>
+`build()` is a host call and runs on the Acton side, not inside TVM. Calling it from a contract's `onInternalMessage` or similar TVM entrypoint will fail.
+</Warning>

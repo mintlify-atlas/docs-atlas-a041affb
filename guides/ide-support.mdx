@@ -1,0 +1,203 @@
+---
+title: "IDE and Editor Support for Acton Projects"
+sidebarTitle: "IDE Support"
+description: "Set up the TON VS Code extension or JetBrains plugin for Tolk syntax highlighting, LSP completion, acton check diagnostics, test runner integration, and DAP debugging."
+---
+
+Acton ships with first-class IDE integrations for both VS Code-based editors and JetBrains IDEs. Both integrations surface the same Acton capabilities — syntax highlighting, code completion, inline lint diagnostics with quick fixes, a native test runner, and source-level debugging — inside the editor's familiar UI. This guide covers installation and configuration for each environment.
+
+## VS Code and VS Code-based editors
+
+The [TON extension for VS Code](https://marketplace.visualstudio.com/items?itemName=ton-core.vscode-ton) supports Acton development across all VS Code-compatible editors:
+
+- Visual Studio Code
+- Cursor
+- Windsurf
+- VSCodium
+- Other VS Code-based editors
+
+### Installing the TON extension
+
+<Steps>
+
+### Open the Extensions panel
+
+Press `Ctrl+Shift+X` (or `Cmd+Shift+X` on macOS) to open the Extensions panel.
+
+### Search and install
+
+Search for **TON** and install the extension published by **ton-core**. Alternatively, install from the command line:
+
+```bash
+code --install-extension ton-core.vscode-ton
+```
+
+### Install Even Better TOML (recommended)
+
+Install the [Even Better TOML](https://marketplace.visualstudio.com/items?itemName=tamasfe.even-better-toml) extension for rich `Acton.toml` editing. It enables TOML syntax highlighting while the TON language server provides Acton-specific schema completion and hover documentation for every field.
+
+```bash
+code --install-extension tamasfe.even-better-toml
+```
+
+### Reload and open a project
+
+Reload VS Code and open an Acton project folder. The extension activates automatically when it detects an `Acton.toml` file.
+
+</Steps>
+
+### VS Code features
+
+<CardGroup cols={2}>
+  <Card title="Acton.toml code lenses" icon="play">
+    Run builds, tests, and scripts directly from `Acton.toml` via inline code-lens buttons — no terminal required.
+  </Card>
+  <Card title="Contract actions" icon="wrench">
+    Build contracts and generate Tolk or TypeScript wrappers via code lenses in contract `.tolk` files.
+  </Card>
+  <Card title="Disassembly view" icon="file-code">
+    Open an assembly preview for any compiled Tolk contract to inspect the generated TVM code without leaving the editor.
+  </Card>
+  <Card title="Native test runner" icon="flask">
+    Acton tests integrate with VS Code's native test runner, showing a hierarchical test tree, pass/fail indicators, and per-test output.
+  </Card>
+  <Card title="Failure analysis" icon="triangle-exclamation">
+    When a test fails, the extension highlights the exact `expect` call that caused the failure and updates the test icon.
+  </Card>
+  <Card title="Source-level debugging" icon="bug">
+    Set breakpoints in Tolk tests and contracts, start debugging from the editor, and inspect stack frames, local values, and TVM registers.
+  </Card>
+  <Card title="Code coverage" icon="chart-bar">
+    Coverage results appear in the editor gutter and file tree after a coverage run, showing which contract lines were executed.
+  </Card>
+  <Card title="Inline lint diagnostics" icon="spell-check">
+    The extension runs `acton check` for Tolk files and reports diagnostics directly in the editor. Available quick fixes can be applied from the Problems panel or the inline quick-fix menu.
+  </Card>
+</CardGroup>
+
+### VS Code settings
+
+The extension respects `[fmt]` and `[lint]` settings from `Acton.toml` automatically. For editor-level preferences, add the following to your workspace `.vscode/settings.json`:
+
+```json title=".vscode/settings.json"
+{
+  // Format Tolk files on save
+  "[tolk]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "ton-core.vscode-ton"
+  },
+
+  // Show lint diagnostics as you type
+  "ton.lint.enable": true,
+
+  // Custom debug port (matches --debug-port in acton test)
+  "ton.debug.port": 4711
+}
+```
+
+### Starting a debug session from VS Code
+
+The extension registers the `tolk` DAP type. To attach the debugger to a running Acton command, create `.vscode/launch.json`:
+
+```json title=".vscode/launch.json"
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "tolk",
+      "request": "launch",
+      "name": "Attach to Acton debugger",
+      "debugServer": 4711
+    }
+  ]
+}
+```
+
+Then start the test or script with `--debug` in a terminal, and press **F5** in VS Code:
+
+```bash
+acton test tests/counter.test.tolk --filter "deploy" --debug --debug-port 4711
+```
+
+For the full debugger reference, see the [debugging guide](/guides/debug).
+
+### Wallet management in VS Code
+
+The **Wallets View** in the extension sidebar lets you generate wallets, import them from a mnemonic, track balances, and request testnet TON — all without leaving the editor.
+
+### Terminal links
+
+TON addresses printed in the Acton terminal output are automatically converted into clickable links that open the configured block explorer in the browser.
+
+---
+
+## JetBrains IDEs
+
+The [TON plugin for JetBrains IDEs](https://plugins.jetbrains.com/plugin/23382-ton) supports Acton development in IntelliJ IDEA, WebStorm, GoLand, PyCharm, CLion, and all other JetBrains 2025.2+ IDEs.
+
+### Installing the TON plugin
+
+<Steps>
+
+### Open the Plugins settings
+
+Go to **Settings → Plugins → Marketplace** and search for **TON**.
+
+### Install the TON plugin
+
+Install the plugin published by **JetBrains** (or the TON community). Restart the IDE when prompted.
+
+### Install the TOML plugin
+
+<Warning>
+  Install the [JetBrains TOML plugin](https://plugins.jetbrains.com/plugin/8195-toml) as well. Acton project configuration relies on TOML support, and the TON plugin works correctly only when TOML files are handled by the IDE.
+</Warning>
+
+Search for **TOML** in the Marketplace and install it.
+
+### Open an Acton project
+
+Open the folder containing `Acton.toml`. The plugin detects the project and adds run configurations automatically.
+
+</Steps>
+
+### JetBrains features
+
+<CardGroup cols={2}>
+  <Card title="New project wizard" icon="folder-plus">
+    Create new Acton projects from the IDE's New Project dialog with a guided GUI for `acton new`.
+  </Card>
+  <Card title="Run configurations" icon="play">
+    The plugin automatically adds run configurations for builds and tests when opening a project. Specialized configuration UIs exist for `build` and `test` commands.
+  </Card>
+  <Card title="Gutter icons for Acton.toml" icon="bolt">
+    Run builds, tests, and scripts directly from gutter icons in `Acton.toml`.
+  </Card>
+  <Card title="Acton.toml navigation" icon="arrow-right">
+    Full autocompletion, validation, and hover documentation for every field in `Acton.toml`. Click contract paths to navigate to source files.
+  </Card>
+  <Card title="Contract management" icon="file-plus">
+    Create new Tolk contracts via wizard with automatic `Acton.toml` registration. The plugin also suggests registering copied contracts.
+  </Card>
+  <Card title="Code completion" icon="keyboard">
+    Autocompletion for contract names in `build()`, wallet names in `scripts.wallet()`, and get-method names in `net.runGetMethod()`.
+  </Card>
+  <Card title="Native test runner" icon="flask">
+    Tests integrate with the JetBrains test runner UI with hierarchical view and progress indicators.
+  </Card>
+  <Card title="Source-level debugging" icon="bug">
+    Set breakpoints in Tolk files, start debugging from the IDE, and inspect stack frames, locals, and TVM registers.
+  </Card>
+</CardGroup>
+
+### Code coverage and linting
+
+After a coverage run, results appear in the editor gutter and file explorer tree. The linter runs in the background and reports diagnostics with automatic fixes in the Problems panel.
+
+### Toolchain updates
+
+The plugin checks for new Acton versions and shows a notification in the IDE when an update is available, so your installed toolchain stays current.
+
+### Wallet management in JetBrains
+
+The **Wallets View** provides wallet generation, mnemonic import, balance tracking, and testnet TON requests directly from the IDE sidebar.

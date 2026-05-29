@@ -1,0 +1,336 @@
+---
+title: "Testing Tolk Smart Contracts with Acton Test Runner"
+sidebarTitle: "Testing"
+description: "Write and run Tolk smart contract tests: @test attributes, filters, coverage (LCOV), mutation testing, fuzz testing, fork testing, and browser Test UI."
+---
+
+Acton includes a full-featured test runner built specifically for TON smart contract development. Tests are written in Tolk — the same language used for contracts — and run against a local TVM emulator that mirrors the real network's execution environment. The runner handles everything from simple unit tests to fuzz testing, code coverage, mutation testing, fork testing against live chain state, and an interactive browser-based Test UI.
+
+## Writing your first test
+
+Test files use the `.test.tolk` extension and live in the `tests/` directory. A test is any `get fun` whose name starts with `test` (in backtick notation for multi-word names):
+
+```tolk title="tests/Counter.test.tolk"
+import "@wrappers/Counter.gen"
+import "@contracts/types"
+import "@acton/emulation/testing"
+import "@acton/testing/expect"
+
+get fun `test increase counter`() {
+    val deployer = testing.treasury("deployer");
+
+    val contract = Counter.fromStorage({ id: 0, counter: 0 });
+    val deployResult = contract.deploy(deployer.address, { value: ton("0.05") });
+    expect(deployResult).toHaveSuccessfulDeploy({ to: contract.address });
+
+    val sendResult = contract.sendIncreaseCounter(deployer.address, 5);
+    expect(sendResult).toHaveTransaction({ success: true });
+
+    expect(contract.currentCounter()).toEqual(5);
+}
+```
+
+## Running tests
+
+```bash
+# Run all tests in the project
+acton test
+
+# Run tests matching a name pattern
+acton test --filter "test increase"
+
+# Run a specific test file
+acton test tests/Counter.test.tolk
+
+# Run multiple test files
+acton test tests/Counter.test.tolk tests/Jetton.test.tolk
+
+# Exclude test files matching a pattern
+acton test --exclude "Jetton"
+```
+
+## Test attributes
+
+Control test behavior with `@test.*` attributes placed on `get fun` declarations:
+
+<Accordion title="@test.skip — skip a test">
+  ```tolk
+  @test.skip
+  get fun `test not yet implemented`() {
+      // This test is skipped
+  }
+  ```
+</Accordion>
+
+<Accordion title="@test.only — run only this test">
+  ```tolk
+  @test.only
+  get fun `test focus on this one`() {
+      // Only this test runs in the file
+  }
+  ```
+</Accordion>
+
+<Accordion title="@test.fuzz — fuzz test with generated inputs">
+  ```tolk
+  import "@acton/testing/fuzz"
+
+  @test.fuzz
+  get fun `test counter never goes negative`(value: int) {
+      val bounded = fuzz.bound(value, 0, 1000);
+      expect(bounded >= 0).toBeTrue();
+  }
+
+  @test.fuzz(64)
+  get fun `test bool roundtrip`(flag: bool) {
+      expect(flag).toEqual(flag);
+  }
+
+  @test.fuzz({ runs: 64, max_test_rejects: 1024, seed: 42 })
+  get fun `test only even values`(value: int) {
+      fuzz.assume(value % 2 == 0);
+      expect(value % 2).toEqual(0);
+  }
+  ```
+</Accordion>
+
+## Built-in matchers
+
+### Transaction matchers
+
+```tolk
+expect(res).toHaveSuccessfulDeploy({ to: contract.address });
+expect(res).toHaveTransaction({ success: true });
+expect(res).toHaveTx({
+    from: fun (addr: address): bool { return addr == deployer.address; },
+    to: contract.address,
+    value: ton("0.5"),
+    opcode: 0x0000_0001,
+});
+expect(res).toHaveBouncedTx({ from: contract.address });
+expect(res).toNotHaveTx({ to: contract.address });
+```
+
+- `toHaveSuccessfulTx()` forces `success = true` and defaults `exitCode = 0`.
+- `toHaveFailedTx()` requires a non-zero `exitCode`.
+- `SearchParams` fields accept either exact values or predicate functions.
+
+### Map matchers
+
+```tolk
+val balances: map<int32, int32> = net.runGetMethod(ledger.address, "balances");
+
+expect(balances).toContainKey(1);
+expect(balances).toContainValue(20);
+expect(balances).toNotContainKey(99);
+expect(balances).toBeNonEmpty();
+expect(balances).toHaveLength(2);
+```
+
+### Out-action helpers
+
+```tolk
+val outActions = testing.outActions();
+
+expect(outActions).toBeSendMessageAt<IncreaseCounter>(2);
+
+val action = outActions.getSendMessageAt(2);
+val body   = outActions.getSendMessageBodyAt<IncreaseCounter>(2);
+```
+
+<Note>
+  Out-action indexing is reversed: index `0` is the **last** produced action.
+</Note>
+
+## Code coverage
+
+Run tests with `--coverage` to collect line and branch coverage:
+
+```bash
+acton test --coverage
+```
+
+After the run, Acton prints a summary table:
+
+```
+───────────────────────────────────────────────────────────────────────
+ File        Covered  Total  % Lines  Covered  Total  % Branches  Score
+───────────────────────────────────────────────────────────────────────
+ All files         4      4   100.0%        2      2      100.0%  100.0%
+ math.tolk         4      4   100.0%        2      2      100.0%  100.0%
+```
+
+### Export coverage data
+
+<Tabs>
+  <Tab title="LCOV">
+    ```bash
+    acton test --coverage --coverage-format lcov
+    # Writes lcov.info in the project root
+    ```
+  </Tab>
+  <Tab title="Text">
+    ```bash
+    acton test --coverage --coverage-format text
+    # Writes coverage.txt in the project root
+    ```
+  </Tab>
+  <Tab title="Custom path">
+    ```bash
+    acton test --coverage --coverage-format lcov \
+               --coverage-file build/reports/lcov.info
+    ```
+  </Tab>
+</Tabs>
+
+### Minimum coverage gate
+
+```bash
+acton test --coverage --coverage-minimum-percent 80
+```
+
+The threshold uses the blended `Score` column. The run fails if coverage drops below the required percentage.
+
+### Coverage in the browser UI
+
+```bash
+acton test --coverage --ui
+```
+
+The Test UI shows a `Coverage` tab with a sortable file list and per-file source annotation.
+
+## Fuzz testing
+
+A fuzz test is a parameterized `get fun` with `@test.fuzz`. Acton generates inputs for each parameter type and re-runs the test until all configured runs pass or one fails:
+
+```tolk title="tests/Counter.test.tolk"
+import "@acton/testing/expect"
+import "@acton/testing/fuzz"
+
+@test.fuzz
+get fun `test transfer amounts are bounded`(rawAmount: int, rawRecipient: address?) {
+    val amount = fuzz.bound(rawAmount, 1, 1_000_000);
+    fuzz.assume(rawRecipient != null, "recipient must be present");
+
+    expect(amount >= 1).toBeTrue();
+    expect(amount <= 1_000_000).toBeTrue();
+}
+```
+
+- `fuzz.assume(cond)` — discards the current input if the condition is false (does not count as a failure).
+- `fuzz.bound(value, min, max)` — maps the input into an inclusive range with wrap-around.
+
+Supported fuzz parameter types: signed/unsigned integers, `coins`, `bool`, `string`, `address`, `any_address`, and nullable versions of each.
+
+Configure project-wide fuzz defaults in `Acton.toml`:
+
+```toml title="Acton.toml"
+[test.fuzz]
+runs            = 512
+max-test-rejects = 4096
+seed            = 42
+```
+
+Override the seed for a single run:
+
+```bash
+acton test --fuzz-seed 12345
+```
+
+## Mutation testing
+
+Mutation testing introduces small source-level edits (mutations) — flipping `<` to `>=`, removing an `assert`, swapping `+` for `-` — and checks whether your test suite catches them. Surviving mutants reveal gaps in test assertions.
+
+```bash
+acton test --mutate --mutate-contract Counter
+```
+
+<Steps>
+  <Step title="Mutant generation">
+    Acton scans the contract and generates mutation sites based on built-in rules.
+  </Step>
+  <Step title="Compilation">
+    Each mutant is compiled. Mutants that fail to compile are reported separately and excluded from the mutation score.
+  </Step>
+  <Step title="Testing">
+    The full test suite runs against each valid mutant.
+  </Step>
+  <Step title="Reporting">
+    **KILLED** — tests failed on the mutant (expected). **SURVIVED** — tests passed, revealing a gap.
+  </Step>
+</Steps>
+
+### Scope mutation runs
+
+```bash
+# Only mutate lines changed in the current worktree
+acton test --mutate --mutate-contract Counter --mutation-diff worktree
+
+# Target only critical-level mutations
+acton test --mutate --mutate-contract Counter --mutation-levels critical
+
+# Compare against a specific ref
+acton test --mutate --mutate-contract Counter --mutation-diff ref --mutation-diff-ref HEAD~1
+```
+
+### Mutation score gate
+
+```bash
+acton test --mutate --mutate-contract Counter --mutation-minimum-percent 85
+```
+
+### Mutation options summary
+
+| Option | Description |
+|---|---|
+| `--mutate` | Enables mutation testing mode. |
+| `--mutate-contract <NAME>` | Contract from `Acton.toml` to mutate. |
+| `--mutation-diff <MODE>` | Limit to `worktree`, `ref`, or `branch` diff. |
+| `--mutation-diff-ref <REF>` | Base ref for `ref` or `branch` mode. |
+| `--mutation-levels <LEVELS>` | Comma-separated levels: `critical,major`. |
+| `--mutation-workers <N>` | Parallelism cap for workers. |
+| `--mutation-minimum-percent <P>` | Fail if mutation score is below this threshold. |
+| `--mutation-disable-rules <RULE>` | Disable a specific rule. Can repeat. |
+
+<Warning>
+  Tests must use the contract name from `Acton.toml` — not a direct file path — for mutation rewrites to apply:
+
+  ```tolk
+  // ✅ Correct
+  val wallet = build("JettonWallet");
+
+  // ❌ Bypasses mutation wiring
+  val wallet = build("JettonWallet", "./contracts/JettonWallet.tolk");
+  ```
+</Warning>
+
+## Fork testing
+
+Run tests against live testnet or mainnet state by forking the real chain:
+
+```bash
+acton test --fork-net testnet
+acton test --fork-net mainnet
+```
+
+With `--fork-net`, Acton fetches real account states from the selected network and caches them locally. Tests can then interact with deployed contracts using their actual on-chain state.
+
+## Gas profiling
+
+Acton can measure opcode-level gas consumption and compare runs against saved baseline snapshots. Run `acton test` normally — gas profiling instruments are available inside tests via the standard testing API.
+
+## Browser Test UI
+
+Open the interactive browser UI after a test run:
+
+```bash
+acton test --ui
+```
+
+The Test UI shows transaction trees, logs, matcher failure details, and — when `--coverage` is also passed — a file-by-file coverage view.
+
+Save trace bundles for offline inspection or CI artifacts:
+
+```bash
+acton test --save-test-trace
+```

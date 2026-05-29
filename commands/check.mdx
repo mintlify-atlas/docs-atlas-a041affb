@@ -1,0 +1,171 @@
+---
+title: "acton check — lint Tolk smart contract sources"
+sidebarTitle: "check"
+description: "Lint Tolk contracts with acton check. Covers --fix, --output-format (plain/json/sarif/github/gitlab), --enable-only, --explain, --output-file, and CI integration patterns."
+---
+
+`acton check` runs the Tolk linter over the whole project, a specific contract
+from `Acton.toml`, or a single `.tolk` file. In addition to plain human-readable
+output, it supports machine-readable formats for CI pipelines, code-quality
+dashboards, and IDE integrations. Auto-fix mode can apply safe rewrites in one
+pass.
+
+## Synopsis
+
+```bash
+acton check [OPTIONS] [TARGET]
+```
+
+`TARGET` is either a contract name from `Acton.toml` or a path to a `.tolk`
+file. When omitted, Acton checks all contracts, workspace test files, and
+standalone script roots that define `main()`.
+
+---
+
+## Arguments & options
+
+### Check options
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `[TARGET]` | string \| path | — | Contract name from `Acton.toml` or path to a `.tolk` file. Targets ending in `.tolk` are treated as file paths; other values are resolved as contract names. |
+| `--fix` | flag | false | Apply available auto-fixes. Works only in plain output mode. |
+| `--output-format <FORMAT>` | `plain` \| `json` \| `sarif` \| `github` \| `gitlab` | `plain` | Output format for diagnostics. Resolution order: CLI flag → `[lint].output-format` → `plain`. |
+| `--output-file <PATH>` | path | stdout | Write output to a file instead of standard output. Not valid with `plain` format. |
+| `--enable-only <CODE[,CODE...]>` | string | — | Enable only selected lint rules. Selected `allow` rules are re-enabled at their default severity; all other rules are forced to `allow`. Repeatable. |
+| `--explain <CODE>` | string | — | Print a human-readable explanation for a lint rule code. |
+
+### Global flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--color <WHEN>` | `auto` \| `always` \| `never` | `auto` | Control coloured output. |
+| `--manifest-path <PATH>` | path | — | Path to `Acton.toml`. Conflicts with `--project-root`. |
+| `--project-root <PATH>` | path | — | Path to project root. Conflicts with `--manifest-path`. |
+
+---
+
+## Output formats
+
+<Tabs>
+  <Tab title="plain (default)">
+    Human-readable diagnostics with source context, compatible with `--fix`.
+
+    ```bash
+    acton check
+    acton check --fix
+    ```
+  </Tab>
+  <Tab title="json">
+    Structured JSON array of diagnostic objects. Useful for custom tooling.
+
+    ```bash
+    acton check --output-format json
+    acton check --output-format json --output-file build/lint.json
+    ```
+  </Tab>
+  <Tab title="sarif">
+    SARIF v2.1.0 format for code-quality tools and dashboards.
+
+    ```bash
+    acton check --output-format sarif --output-file build/reports/lint.sarif
+    ```
+  </Tab>
+  <Tab title="github">
+    GitHub Actions [workflow commands](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions) that annotate pull-request diffs.
+
+    ```bash
+    acton check --output-format github
+    ```
+  </Tab>
+  <Tab title="gitlab">
+    GitLab Code Quality report format.
+
+    ```bash
+    acton check --output-format gitlab --output-file gl-code-quality-report.json
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Behaviour notes
+
+- Project-wide discovery includes workspace `*.test.tolk` files and standalone
+  script roots that define `main()`.
+- Discovery skips `.git`, `.github`, `.idea`, `.acton`, `node_modules`,
+  `target`, `tolk-stdlib`, `.codex`, and `.claude`.
+- Contracts with non-`.tolk` sources (e.g. precompiled `.boc` entries) are not
+  lint roots.
+- Single-file mode relaxes rule `E010 (acton-import-in-contract)`.
+- Inline suppressions use rule **names**:
+  ```tolk
+  // check-disable-next-line unused-variable, write-only-variable
+  ```
+- Compiler and parser diagnostics (`compiler-error`, `parse-error`) cannot be
+  suppressed with `check-disable-next-line`.
+- `--fix` applies only the first available fix per diagnostic and only for
+  rules marked as auto-fixable. Unfixed diagnostics remain in the report and
+  still contribute to the exit code.
+- `--enable-only` selectors must resolve to exactly one rule — use full codes
+  such as `E002` for stability.
+
+---
+
+## Examples
+
+<CodeGroup>
+```bash Check the whole project
+acton check
+```
+
+```bash Check a specific contract by name
+acton check Counter
+```
+
+```bash Check a single file
+acton check ./contracts/Counter.tolk
+```
+
+```bash Apply auto-fixes where available
+acton check --fix
+```
+
+```bash Run only selected rules
+acton check --enable-only S003,S001
+```
+
+```bash Explain a rule code
+acton check --explain E002
+```
+
+```bash SARIF output to file
+acton check --output-format sarif --output-file build/reports/lint.sarif
+```
+
+```bash GitHub Actions annotations in CI
+acton check --output-format github
+```
+
+```bash GitLab Code Quality report
+acton check --output-format gitlab --output-file gl-code-quality-report.json
+```
+
+```bash JSON output to file
+acton check --output-format json --output-file build/lint.json
+```
+</CodeGroup>
+
+---
+
+## CI recipe
+
+```yaml title=".github/workflows/ci.yml"
+- name: Lint
+  run: acton check --output-format github
+```
+
+<Tip>
+  Use `acton check --explain <CODE>` to understand why a rule fires before
+  deciding whether to suppress or fix it.
+</Tip>

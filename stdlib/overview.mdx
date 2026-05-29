@@ -1,0 +1,79 @@
+---
+title: "Acton Standard Library — Complete Module Reference"
+sidebarTitle: "Overview"
+description: "All Acton stdlib modules available via @acton/ imports — testing, emulation, build, io, crypto, fmt, fs, env, and prompts."
+---
+
+Acton ships a built-in standard library that scripts and tests can access using the `@acton/` import prefix. When Acton initialises a project it writes the library source into a hidden `.acton/` directory at the project root; the compiler then maps every `import "@acton/..."` statement to the corresponding `.tolk` file in that directory. Because the library is plain Tolk code you can inspect, extend, or vendor it exactly like any other source file.
+
+The library is split into two separate concerns. The **Acton stdlib** (this section) provides host-assisted helpers that only make sense inside the Acton runtime: assertion primitives, blockchain emulation, build utilities, I/O, and cryptography. The [Tolk standard library](/tolk-stdlib/overview) documents the language-level builtins that are compiled into every Tolk program — things like cell manipulation, address utilities, and TVM dictionary operations. Both layers work together, but they live in different namespaces and are imported with different prefixes.
+
+<Note>
+The `@acton/` prefix is resolved at **compile time** by the Acton CLI — it is not a package-manager import. No network access is required to use the stdlib.
+</Note>
+
+## Available Modules
+
+<CardGroup cols={2}>
+  <Card title="@acton/testing/assert" href="/stdlib/testing">
+    Low-level assertion primitives: `Assert.equal`, `Assert.fail`, `Assert.consumesLessThan`, and friends.
+  </Card>
+  <Card title="@acton/testing/expect" href="/stdlib/testing">
+    Fluent `expect(value).toXxx()` matcher API for readable test assertions.
+  </Card>
+  <Card title="@acton/testing/fuzz" href="/stdlib/testing">
+    Helpers for parameterised fuzz tests — `fuzz.bound`, `fuzz.assume`.
+  </Card>
+  <Card title="@acton/emulation/testing" href="/stdlib/emulation">
+    Test-only emulation API: treasury accounts, time control, account state, snapshots.
+  </Card>
+  <Card title="@acton/emulation/network" href="/stdlib/emulation">
+    Unified network layer — `net.send`, `net.sendExternal`, `net.runGetMethod` — works in both emulation and broadcast mode.
+  </Card>
+  <Card title="@acton/emulation/scripts" href="/stdlib/emulation">
+    Script-specific utilities: `scripts.wallet`, `scripts.fetchAccountBalance`, and deployment helpers.
+  </Card>
+  <Card title="@acton/emulation/config" href="/stdlib/emulation">
+    Blockchain configuration API — read and write gas prices, storage prices, message forward prices, and more.
+  </Card>
+  <Card title="@acton/build" href="/stdlib/build">
+    Compile or load a contract code cell at runtime: `build("ContractName")`.
+  </Card>
+  <Card title="@acton/io" href="/stdlib/io">
+    Standard I/O — `println`, `eprintln`, and format-string support for debugging scripts and tests.
+  </Card>
+  <Card title="@acton/crypto" href="/stdlib/crypto">
+    Cryptographic primitives — mnemonic generation, Ed25519 key derivation, signing, and secure random bytes.
+  </Card>
+  <Card title="@acton/fmt" href="/stdlib/io">
+    String formatting and parsing helpers used internally by `println`.
+  </Card>
+  <Card title="@acton/fs" href="/stdlib/io">
+    File-system operations for scripts that need to read or write files.
+  </Card>
+  <Card title="@acton/env" href="/stdlib/io">
+    Access to environment variables from scripts and tests.
+  </Card>
+  <Card title="@acton/prompts" href="/stdlib/io">
+    Interactive CLI prompt helpers — useful for deployment scripts that need user confirmation.
+  </Card>
+</CardGroup>
+
+## Import Convention
+
+Every file in the `tests/` directory and `scripts/` directory can import Acton stdlib modules with:
+
+```tolk
+import "@acton/testing/assert"
+import "@acton/testing/expect"
+import "@acton/emulation/testing"
+import "@acton/emulation/network"
+import "@acton/build"
+import "@acton/crypto"
+```
+
+Contract source files in `contracts/` should **not** import `@acton/` modules — the Acton library is a host-side runtime and will not work inside TVM execution. Use the [Tolk standard library](/tolk-stdlib/overview) for on-chain logic instead.
+
+<Tip>
+Run `acton docgen` in your project root to regenerate the stdlib documentation from source at any time.
+</Tip>

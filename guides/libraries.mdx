@@ -1,0 +1,223 @@
+---
+title: "Publishing and Using On-Chain Tolk Libraries in Acton"
+sidebarTitle: "Libraries"
+description: "Publish, fetch, inspect, and top up on-chain TON libraries with acton library: libraries.toml tracking, library_ref dependency kind, deduplication, and cost considerations."
+---
+
+On-chain libraries let the TON blockchain store contract code once on the masterchain and reuse it across multiple contracts, cutting storage costs compared to embedding the same bytecode in every account. Acton provides `acton library` commands to publish, inspect, top up, and fetch libraries, plus `libraries.toml` for tracking deployed library metadata locally. This page covers the full publishing workflow and how to reference deployed libraries from contracts in `Acton.toml`.
+
+## How on-chain libraries work
+
+A library is a smart contract account on the masterchain that stores a code cell. When a contract uses `library_ref` as its dependency kind, the generated helper function produces a library reference cell (a 2-bit tag plus the code hash) instead of embedding the full bytecode. The TVM resolves the reference at execution time by looking up the hash in the masterchain library dictionary. Contracts pay only for the storage of the reference, not the full code.
+
+<Note>
+  Libraries are always stored on the masterchain (workchain -1) to remain accessible from all workchains.
+</Note>
+
+## Publishing a library
+
+### Step 1: Create the contract
+
+Write the Tolk source file and register it in `Acton.toml`:
+
+```tolk title="contracts/Math.tolk"
+fun add(a: int, b: int): int {
+    return a + b;
+}
+```
+
+```toml title="Acton.toml"
+[contracts.Math]
+display-name = "Math on-chain library"
+src = "contracts/Math.tolk"
+```
+
+### Step 2: Publish
+
+```bash
+acton library publish Math
+```
+
+The CLI walks through an interactive publish flow:
+
+<Steps>
+  <Step title="Compile">
+    Acton compiles the contract to obtain the code cell.
+  </Step>
+  <Step title="Duration">
+    Enter the desired storage duration, e.g., `365d` for one year or `2y` for two years.
+  </Step>
+  <Step title="Cost estimate">
+    Acton computes the storage fee from code size and duration and shows a cost estimate.
+  </Step>
+  <Step title="Wallet selection">
+    Select a wallet to pay deployment costs.
+  </Step>
+  <Step title="Confirm payment">
+    Confirm the suggested transaction amount (120% of storage fee plus gas). Any excess TON is refunded.
+  </Step>
+</Steps>
+
+On success, Acton prints the library hash:
+
+```
+✓ Transaction sent successfully
+→ Library should be available soon at hash: b993c68...
+```
+
+### Non-interactive publish
+
+```bash
+# Publish with all parameters specified upfront
+acton library publish Math \
+    --duration 100d \
+    --amount 0.2 \
+    --wallet my-wallet \
+    --net mainnet \
+    --yes \
+    --local
+
+# Publish raw BoC code (hex or base64)
+acton library publish --code "te6cckEBAQEAAgAAAEysuc0="
+```
+
+Use `--local` or `--global` to save the library entry to `libraries.toml` or `global.libraries.toml` without an interactive prompt.
+
+## Monitoring library status
+
+After publishing, monitor the library balance so storage fees do not drain and freeze the account:
+
+```bash
+acton library info Math
+```
+
+Output includes:
+
+- **Balance** — current balance of the library account.
+- **Last top-up** — timestamp used as the reference for storage runway calculations.
+- **Remaining** — estimated storage runway based on current masterchain storage prices.
+- **Hash and account** — the library hash and on-chain address.
+
+<Warning>
+  When the estimated runway is exhausted, Acton prints a warning to top up. This does not guarantee the account is already frozen — it signals higher freeze risk. A frozen library causes contracts that reference it to fail at execution time.
+</Warning>
+
+## Topping up a library
+
+When the balance runs low, top up with `acton library topup`:
+
+```bash
+# Top up for another 2 years
+acton library topup Math --duration 2y
+
+# Top up with a specific TON amount
+acton library topup Math --amount 5.0
+```
+
+After a successful top-up, Acton updates the `last_topup_timestamp` field in library metadata.
+
+## Fetching a library
+
+Inspect an existing library by hash:
+
+```bash
+acton library fetch <LIBRARY_HASH>
+
+# Disassemble the code immediately
+acton library fetch <LIBRARY_HASH> --disasm
+```
+
+Save the library code to a file:
+
+```bash
+# Save as base64 text
+acton library fetch <LIBRARY_HASH> -o library.txt
+
+# Save as binary BoC
+acton library fetch <LIBRARY_HASH> -o library.boc
+
+# Save as TVM assembly
+acton library fetch <LIBRARY_HASH> --disasm -o library.tasm
+```
+
+## The libraries.toml file
+
+Acton tracks deployed libraries in `libraries.toml` (local) or `global.libraries.toml` (global). Each entry records the name, hash, code, and account address:
+
+```toml title="libraries.toml"
+[Math]
+name    = "Math"
+hash    = "b993c68..."
+code    = "te6cckEBAQEAAgAAAEysuc0="
+account = "Ef9c..."
+```
+
+`acton init` manages a `global.libraries.toml` symlink in the project root, similar to how it handles global wallets.
+
+## Referencing libraries from contracts
+
+To use a published library as a dependency, switch the dependency kind to `library_ref` in `Acton.toml`:
+
+```toml title="Acton.toml"
+[contracts.JettonWallet]
+src = "contracts/JettonWallet.tolk"
+depends = [
+  { name = "Math", kind = "library_ref", function = "mathLibraryCodeRef" }
+]
+```
+
+Acton then generates a library reference helper in `gen/` instead of embedding the full code:
+
+```tolk title="gen/Math.code.tolk"
+@pure
+fun mathLibraryCodeRef(): cell asm """
+    "<base64_boc_data>" base64>B B>boc hashu <b 2 8 u, swap 256 u, b>spec PUSHREF
+"""
+```
+
+| Dependency kind | Code in parent | Library must be deployed |
+|---|---|---|
+| `embed_code` (default) | Full bytecode embedded at compile time | No |
+| `library_ref` | 33-byte hash reference only | Yes |
+
+## Using libraries in tests and scripts
+
+Acton exposes helpers for libraries in the standard library:
+
+```tolk title="tests/Jetton.test.tolk"
+import "@acton/emulation/testing"
+
+get fun `test with registered library`() {
+    // Register library code in the local test blockchain
+    testing.registerLibrary(mathLibraryCodeRef(), mathCode);
+
+    // Or fetch and register by hash from a real network
+    val ok = testing.loadAndRegisterLibrary("b993c68...");
+    expect(ok).toBeTrue();
+}
+```
+
+- `net.loadLibrary(hash)` — loads a library by hash and returns its code cell, or `null` if not found.
+- `testing.registerLibrary(ref, code)` — registers a library in the current test blockchain.
+- `testing.loadAndRegisterLibrary(hash)` — fetches by hash and registers, returning `true` on success.
+
+## Deduplication
+
+The TON masterchain deduplicates library cells by code hash. Publishing the same code twice does not create a second account — the hash is identical, so the existing library account is reused. The `acton library publish` command checks for this and warns before sending a duplicate transaction.
+
+## Cost considerations
+
+<CardGroup cols={2}>
+  <Card title="Storage fees accumulate" icon="hourglass">
+    Libraries pay ongoing masterchain storage fees. Budget for the full intended lifetime when publishing, and monitor balance regularly.
+  </Card>
+  <Card title="Amortize over many contracts" icon="chart-line">
+    The storage savings from `library_ref` pay off when many contracts reference the same library. For a single contract, `embed_code` is simpler.
+  </Card>
+  <Card title="Publish on mainnet carefully" icon="triangle-alert">
+    Library publication transfers real TON and creates a permanent masterchain account. Test with the same contract on testnet first.
+  </Card>
+  <Card title="Top up before expiry" icon="battery-charging">
+    A library that runs out of storage budget is frozen. Frozen libraries cause all referencing contracts to fail at runtime. Set a calendar reminder to top up.
+  </Card>
+</CardGroup>

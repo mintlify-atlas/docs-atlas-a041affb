@@ -1,0 +1,302 @@
+---
+title: "acton test — TON contract test runner"
+sidebarTitle: "test"
+description: "Run Tolk smart contract tests with acton test. Full reference for filtering, coverage, mutation testing, gas snapshots, fork mode, tracing, and the browser UI."
+---
+
+`acton test` discovers and executes tests from `.test.tolk` files. It is the
+most fully-featured Acton command: it supports per-test filtering, multiple
+report formats, code-coverage collection, gas-usage snapshots, mutation
+testing, transaction-trace export, remote-state forking, and a browser UI for
+exploring results interactively. Tests are run locally in the TVM emulator —
+no live network connection is required unless `--fork-net` is used.
+
+## Synopsis
+
+```bash
+acton test [OPTIONS] [PATH]
+```
+
+`PATH` can be a single `.test.tolk` file or a directory. When omitted, Acton
+discovers tests recursively from the project root.
+
+---
+
+## Filtering
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-f`, `--filter <PATTERN>` | regex | — | Run only tests whose name matches the regular expression. |
+| `--exclude <GLOB>` | glob | — | Exclude test files and directories matching the glob. Repeatable. |
+| `--include <GLOB>` | glob | — | Include only test files and directories matching the glob. Repeatable. |
+
+---
+
+## Execution
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--fail-fast[=<BOOL>]` | bool | `[test].fail-fast` or `false` | Stop after the first failing test. |
+| `--fuzz-seed <SEED>` | u64 | — | Seed for reproducible fuzz runs. Overrides `[test.fuzz].seed`. |
+| `--verbose` | count | 0 | Increase executor log verbosity (level 1 only). Useful for `debug.dumpStack()` output. |
+
+---
+
+## Debugging
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--debug` | flag | false | Enable debug mode. Raises verbosity and collects source locations for live stepping. |
+| `--debug-port <PORT>` | u16 | 12345 | Port for the debug server. |
+| `--backtrace <LEVEL>` | `full` | — | Enable execution backtraces. `full` collects source locations and call stacks without opening the debugger. |
+
+---
+
+## Coverage
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--coverage` | flag | false | Generate a code-coverage profile. |
+| `--coverage-format <FORMAT>` | `lcov` \| `text` | — | Output format for the coverage report. |
+| `--coverage-file <PATH>` | path | `lcov.info` / `coverage.txt` | Output file for the coverage report. |
+| `--coverage-minimum-percent <PERCENT>` | f64 (0–100) | — | Fail if the final blended coverage score is below this percentage. Ignored when `--ui` is enabled. |
+| `--coverage-include-wrappers` | flag | false | Include files from the `@wrappers` mapping in coverage reports. |
+| `--coverage-include-tests` | flag | false | Include `.test.tolk` files and `tests/` directories in coverage reports. |
+
+<Note>
+  Coverage excludes wrapper and test sources by default. Use
+  `--coverage-include-wrappers` and `--coverage-include-tests` to opt in.
+  The `--coverage-minimum-percent` threshold checks the blended **Score**
+  column in the summary, not just `% Lines`.
+</Note>
+
+---
+
+## Profiling (gas snapshots)
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--snapshot <PATH>` | path | — | Write gas usage statistics to a JSON snapshot file. |
+| `--baseline-snapshot <PATH>` | path | — | Compare current gas usage against a baseline snapshot. |
+| `--fail-on-diff` | flag | false | Exit non-zero when profiling differs from the baseline. Requires `--baseline-snapshot`. |
+
+<Note>
+  When both `--snapshot` and `--baseline-snapshot` are provided, Acton runs in
+  comparison mode and does **not** overwrite the snapshot file.
+</Note>
+
+---
+
+## Reporting
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--reporter <FORMAT>[,<FORMAT>...]` | `console` \| `teamcity` \| `junit` \| `dot` | — | Report format(s). Overrides `[test].reporter`. Comma-separated or repeated. |
+| `--show-bodies` | flag | false | Show decoded message bodies in transaction trees when ABI is known. |
+| `--junit-path <PATH>` | path | `[test].junit-path` or `test-results` | Output directory for JUnit XML reports (used when the `junit` reporter is active). |
+| `--junit-merge` | flag | false | Merge all test suites into a single JUnit XML file. |
+| `--ui` | flag | false | Open test results in a browser UI. |
+| `--ui-port <PORT>` | u16 | `[test].ui-port` or `12344` | Port for the browser UI server. |
+
+### Dot reporter
+
+The `dot` reporter prints one character per test for compact progress and
+shows full failure diagnostics at the end of the run:
+
+| Character | Meaning |
+|-----------|---------|
+| `·` | passed |
+| `x` | failed |
+| `○` | skipped |
+| `□` | todo |
+
+---
+
+## Cache
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--clear-cache[=<BOOL>]` | bool | false | Clear the compilation cache before running. |
+
+---
+
+## Remote (fork mode)
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--fork-net <NETWORK>` | string | — | Fork blockchain state from `mainnet`, `testnet`, or `custom:<name>` for remote account resolution. Execution remains local. |
+| `--fork-block-number <SEQNO>` | u64 | — | Historical block sequence number to fork from. |
+
+<Note>
+  Built-in networks read `TONCENTER_MAINNET_API_KEY` or
+  `TONCENTER_TESTNET_API_KEY`. Custom networks (`custom:<name>`) read
+  `<NORMALIZED_NAME>_API_KEY`. Keep keys in `.env` — Acton loads it
+  automatically.
+</Note>
+
+---
+
+## Tracing
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--save-test-trace [DIR]` | path | `build/traces` | Save transaction traces to a directory. Each test produces `<test-name>_trace.json`. Contract metadata is written to `contracts/<contract-name>.json`. |
+
+`--ui` automatically enables `build/traces` when `--save-test-trace` is not
+set explicitly.
+
+---
+
+## Mutation testing
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--mutate` | flag | false | Enable mutation testing mode. |
+| `--mutate-contract <CONTRACT_NAME>` | string | — | Contract to mutate. |
+| `--mutation-rules-file <PATH>` | path | — | JSON file with custom query-based mutation rules. Custom rules are merged with built-in rules; same ID overrides. |
+| `--mutation-session-id <ID>` | string | — | Session ID for progress logging to `build/mutation-sessions/<ID>.jsonl` and resume. |
+| `--mutation-workers <N>` | usize (≥1) | available parallelism | Number of parallel mutation workers. |
+| `--mutation-diff <MODE>` | `worktree` \| `ref` \| `branch` | — | Limit mutations to lines changed in the selected diff scope. |
+| `--mutation-diff-ref <REF>` | string | — | Base ref for diff-based mutation modes. Required with `ref`; optional with `branch`. |
+| `--mutation-levels <LEVEL[,LEVEL...]>` | `critical` \| `major` \| `minor` | — | Run only selected mutation levels. Comma-separated or repeated. |
+| `--mutation-id <ID>` | usize (≥1) | — | Re-run specific mutation IDs from a previous report. Comma-separated or repeated. |
+| `--mutation-minimum-percent <PERCENT>` | f64 (0–100) | — | Fail if the mutation score is below this percentage. |
+| `--mutation-disable-rules <RULE>` | string | — | Disable a specific mutation rule. Repeatable. |
+
+### Mutation session resume
+
+When you press `Ctrl+C` during a mutation run, Acton prints a resume command
+that includes the same `--mutation-session-id`. Re-run with the same filters
+and session ID to continue from where the run stopped.
+
+---
+
+## Acton.toml configuration
+
+```toml title="Acton.toml"
+[test]
+reporter     = ["console"]
+filter       = ".*jetton.*"
+fail-fast    = false
+junit-path   = "reports"
+junit-merge  = false
+
+[test.fuzz]
+runs               = 512
+max-test-rejects   = 4096
+seed               = 42
+
+[test.coverage]
+enabled             = true
+minimum-percent     = 85
+include-tests       = true
+include-wrappers    = true
+
+[test.mutation]
+diff             = "branch"
+diff-ref         = "origin/main"
+mutation-levels  = ["critical", "major"]
+minimum-percent  = 85
+disable-rules    = ["replace_plus_with_minus"]
+```
+
+CLI flags override `[test]` values for the current invocation.
+
+---
+
+## Examples
+
+<CodeGroup>
+```bash Run all tests
+acton test
+```
+
+```bash Filter by name
+acton test --filter "wallet.*"
+```
+
+```bash Run a single test file
+acton test tests/counter.test.tolk
+```
+
+```bash Show executor debug logs
+acton test --verbose --filter "debug.*"
+```
+
+```bash Coverage with LCOV output
+acton test --coverage --coverage-format lcov
+```
+
+```bash Coverage with minimum threshold
+acton test --coverage --coverage-minimum-percent 85
+```
+
+```bash Coverage + browser UI
+acton test --coverage --ui
+```
+
+```bash JUnit report for CI
+acton test --reporter junit --junit-path test-results
+```
+
+```bash Dot reporter with backtraces
+acton test --reporter dot --backtrace full
+```
+
+```bash Gas snapshot (write)
+acton test --snapshot build/gas-baseline.json
+```
+
+```bash Gas snapshot (compare and fail on drift)
+acton test --baseline-snapshot build/gas-baseline.json --fail-on-diff
+```
+
+```bash Fork mainnet state
+TONCENTER_MAINNET_API_KEY=your-key acton test --fork-net mainnet
+```
+
+```bash Fork at a specific block
+acton test --fork-net testnet --fork-block-number 55000000
+```
+
+```bash Save transaction traces
+acton test --save-test-trace
+```
+
+```bash Save traces + browser UI
+acton test --save-test-trace --ui
+```
+
+```bash Mutation testing for one contract
+acton test --mutate --mutate-contract Counter
+```
+
+```bash Mutation testing for changed lines only
+acton test --mutate --mutate-contract Counter --mutation-diff worktree
+```
+
+```bash Mutation testing on current branch vs main
+acton test --mutate --mutate-contract Counter \
+  --mutation-diff branch --mutation-diff-ref origin/main
+```
+
+```bash Critical + major mutations only
+acton test --mutate --mutate-contract Counter \
+  --mutation-levels critical,major
+```
+
+```bash Re-run a specific mutant by ID
+acton test --mutate --mutate-contract Counter --mutation-id 7
+```
+
+```bash Resume an unfinished mutation session
+acton test --mutate --mutate-contract Counter \
+  --mutation-session-id counter-pr-99 \
+  --mutation-diff worktree
+```
+
+```bash Fail when mutation score drops below 85%
+acton test --mutate --mutate-contract Counter \
+  --mutation-minimum-percent 85
+```
+</CodeGroup>

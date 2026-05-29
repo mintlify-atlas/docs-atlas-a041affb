@@ -1,0 +1,192 @@
+---
+title: "acton deploy — deploying TON smart contracts"
+sidebarTitle: "deploy"
+description: "Acton has no standalone deploy command. Deployments run as Tolk scripts via acton script, supporting local emulation, testnet, and mainnet broadcasts."
+---
+
+Acton does not have a dedicated `acton deploy` command. Instead, **deployments are Tolk scripts** executed with `acton script`. This design gives you the full power of the Tolk language to compose initialization state, compute addresses, run post-deploy validation, and print the transaction trace — all in the same file you can test locally before touching a live network.
+
+<Note>
+  Looking for a quick command? The canonical invocation is:
+  ```bash
+  acton script scripts/deploy.tolk --net testnet
+  ```
+  Read on for the full pattern, flags, and mainnet considerations.
+</Note>
+
+## How deployment works
+
+A deployment script is an ordinary Tolk file with a `main()` entry point. When you run it without `--net`, it executes inside Acton's local emulator — transactions are instantaneous, state is ephemeral, and emulated wallets replace real configured wallets. Once the local run succeeds, add `--net testnet` or `--net mainnet` to broadcast the same logic against the real network.
+
+The `acton script` command handles the full broadcast lifecycle: it compiles the script and its imported wrappers, resolves the named wallet from `wallets.toml`, sends the external deployment message, and waits for confirmation.
+
+## The canonical deploy pattern
+
+Every deployment script follows the same four-step structure:
+
+1. Load the deployer wallet
+2. Build the contract initial state
+3. Send the deployment transaction
+4. Wait for confirmation and print the result
+
+```tolk title="scripts/deploy.tolk"
+import "@acton/io"
+import "@acton/emulation/network"
+import "@acton/emulation/scripts"
+import "@acton/build"
+import "@acton/prompts"
+import "@acton/testing/assert"
+
+import "@wrappers/Counter.gen"
+import "@contracts/types"
+
+fun main() {
+    val deployer = scripts.wallet(promptWallet("Select a wallet:"));
+
+    val counter = Counter.fromStorage({
+        owner: deployer.address,
+        id: 123,
+        counter: 0,
+    });
+
+    println("Deploying counter to {}", counter.address);
+
+    val result = counter.deploy(deployer.address, { value: ton("0.05") });
+    val trace = result.waitForTrace();
+    if (trace == null) {
+        Assert.fail("Could not find the trace, deployment has failed!");
+    }
+
+    println("Deployment complete: {}", counter.address);
+    println("On-chain counter is {}", counter.currentCounter());
+    println(trace);
+}
+```
+
+### waitForFirstTransaction vs waitForTrace
+
+| Method | Use when |
+|---|---|
+| `.waitForFirstTransaction()` | You only need to confirm the deploy message landed |
+| `.waitForTrace()` | You want the full multi-hop transaction chain (recommended) |
+
+Both return `null` if Acton cannot fetch the result within the retry budget — always check for `null` and call `Assert.fail()` or handle the error explicitly.
+
+## acton script flags for deployment
+
+```bash
+acton script <PATH> [ARGS...] [OPTIONS]
+```
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--net` | string | — | Network to broadcast to: `testnet`, `mainnet`, `localnet`, or `custom:<name>`. Omit for local emulation. |
+| `--tonconnect` | flag | — | Use a TON Connect wallet instead of a configured `wallets.toml` wallet |
+| `--tonconnect-port` | number | `52258` | Local port for the TON Connect approval page |
+| `--explorer` | enum | — | Explorer for transaction links in output: `tonscan`, `tonviewer`, etc. |
+| `--fork-net` | string | — | Fork remote account state for emulated execution |
+| `--fork-block-number` | number | — | Historical block seqno to fork from |
+| `--debug` | flag | — | Start a DAP debug server (see [debug](/commands/debug)) |
+| `--debug-port` | number | `12345` | Debug server port |
+| `--backtrace` | enum | — | Enable backtraces (`full`) for failure attribution |
+| `--verbose` | flag | — | Increase executor log verbosity |
+| `--clear-cache` | flag | — | Clear the compilation cache before running |
+| `--show-bodies` | flag | — | Print decoded message bodies in transaction trees |
+
+## Step-by-step deployment workflow
+
+### 1. Run locally (emulation)
+
+Always validate the script in the local emulator first. No real funds move, and the full transaction trace is printed immediately:
+
+```bash
+acton script scripts/deploy.tolk
+```
+
+If the script exits successfully and the trace looks correct, proceed to testnet.
+
+### 2. Deploy to testnet
+
+Add `--net testnet` to broadcast against the TON testnet. Acton resolves the wallet you select from `wallets.toml` and sends a real external message:
+
+```bash
+acton script scripts/deploy.tolk --net testnet
+```
+
+To use a wallet approved through a browser wallet (Tonkeeper, MyTonWallet, etc.) via TON Connect:
+
+```bash
+acton script scripts/deploy.tolk --net testnet --tonconnect
+```
+
+<Warning>
+  Testnet and mainnet runs call TonCenter APIs to broadcast external messages and confirm transaction status. Set `TONCENTER_TESTNET_API_KEY` in your `.env` file to avoid `429` rate-limit errors.
+</Warning>
+
+### 3. Deploy to mainnet
+
+Only broadcast to mainnet after the same script succeeds both locally and on testnet:
+
+```bash
+acton script scripts/deploy.tolk --net mainnet
+```
+
+<Warning>
+  Mainnet deployment is irreversible and transfers real value. Confirm the deployer wallet, the initial contract state, and the deployment value before sending. Use a dedicated mainnet wallet that holds only the funds required for deployment.
+</Warning>
+
+## More complex deploy scripts
+
+For contracts with rich initialization state (jetton minters, NFT collections, DEX pools), build all the cells and dictionaries inside the script before calling the deploy helper:
+
+```tolk title="scripts/deploy-jetton.tolk"
+import "@acton/emulation/scripts"
+import "@acton/build"
+import "@acton/prompts"
+import "@acton/testing/assert"
+
+import "@wrappers/JettonMinter.gen"
+import "@contracts/types"
+
+fun main() {
+    val deployer = scripts.wallet(promptWallet("Select a wallet:"));
+
+    val content = buildOnchainMetadata({
+        name: "ActonJetton",
+        symbol: "ACTON",
+        description: "It is time to act on TON!",
+        image: "https://ton-blockchain.github.io/acton/logo.png",
+    });
+
+    val minter = JettonMinter.fromStorage({
+        totalSupply: 1_000_000_000,
+        adminAddress: deployer.address,
+        content: content,
+        jettonWalletCode: build("JettonWallet"),
+    });
+
+    val trace = minter.deploy(deployer.address, { value: ton("0.05") }).waitForTrace();
+    if (trace == null) {
+        Assert.fail("Could not find the trace, deployment has failed!");
+    }
+
+    println("Jetton deployed at {}", minter.address);
+    println(trace);
+}
+```
+
+## Prerequisites
+
+Before running a broadcast deployment, you need:
+
+1. **A compiled contract** — run `acton build` to produce build artifacts and generated wrappers
+2. **A funded wallet** — use `acton wallet new` + `acton wallet airdrop` for testnet; fund a mainnet wallet directly
+3. **A wrapper** — generate with `acton wrapper <CONTRACT_NAME>` or check that `@wrappers/*.gen.tolk` files exist
+4. **TonCenter API key** — set `TONCENTER_TESTNET_API_KEY` or `TONCENTER_MAINNET_API_KEY` in `.env` for public network runs
+
+## See Also
+
+- [Deployment guide](/guides/deploy) — full deployment walkthrough
+- [`acton script`](/commands/script) — complete script command reference
+- [`acton wallet`](/commands/wallet) — wallet setup for deployment
+- [`acton verify`](/commands/verify) — verify deployed source on TON Verifier

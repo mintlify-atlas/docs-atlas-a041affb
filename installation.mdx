@@ -1,0 +1,191 @@
+---
+title: "Installing Acton: The TON Development CLI"
+sidebarTitle: "Installation"
+description: "Install Acton on macOS, Linux, or WSL using the one-line installer, a direct binary download, or Docker — then verify and keep it updated."
+---
+
+Acton ships as a single, dependency-free executable that you can install in seconds. The recommended path is the public one-line installer, which handles downloading the correct binary for your platform, placing it on your `PATH`, and setting up the shell environment. Alternatively, download a release asset directly or pull the published Docker image for containerised workflows.
+
+## One-line installer
+
+<Tabs>
+  <Tab title="macOS">
+    ```bash
+    curl -LsSf https://github.com/ton-blockchain/acton/releases/latest/download/acton-installer.sh | sh
+    ```
+  </Tab>
+  <Tab title="Linux">
+    ```bash
+    curl -LsSf https://github.com/ton-blockchain/acton/releases/latest/download/acton-installer.sh | sh
+    ```
+  </Tab>
+  <Tab title="WSL">
+    Run this inside your WSL shell (Ubuntu 20.04 or newer) — **not** in PowerShell or `cmd.exe`:
+
+    ```bash
+    curl -LsSf https://github.com/ton-blockchain/acton/releases/latest/download/acton-installer.sh | sh
+    ```
+  </Tab>
+</Tabs>
+
+<Warning>
+  Native Windows is not supported. On Windows, install Acton inside WSL with Ubuntu 20.04 or newer and follow the Linux steps above.
+</Warning>
+
+After the installer finishes, open a **new** terminal window and verify the installation:
+
+```bash
+acton --version
+```
+
+The printed line is the installed Acton version.
+
+## Manual download
+
+If you prefer to download a pre-built binary directly, use the latest release assets below.
+
+| Platform | Architecture | Download |
+|---|---|---|
+| macOS | ARM64 (Apple Silicon) | [acton-aarch64-apple-darwin.tar.gz](https://github.com/ton-blockchain/acton/releases/latest/download/acton-aarch64-apple-darwin.tar.gz) |
+| macOS | x86_64 (Intel) | [acton-x86_64-apple-darwin.tar.gz](https://github.com/ton-blockchain/acton/releases/latest/download/acton-x86_64-apple-darwin.tar.gz) |
+| Linux | x86_64 | [acton-x86_64-unknown-linux-gnu.tar.gz](https://github.com/ton-blockchain/acton/releases/latest/download/acton-x86_64-unknown-linux-gnu.tar.gz) |
+| Linux | ARM64 | [acton-aarch64-unknown-linux-gnu.tar.gz](https://github.com/ton-blockchain/acton/releases/latest/download/acton-aarch64-unknown-linux-gnu.tar.gz) |
+
+After downloading, extract the archive and move the binary to a directory on your `PATH`:
+
+```bash
+# Extract the archive (replace the filename with the one you downloaded)
+tar xzf acton-aarch64-apple-darwin.tar.gz
+
+# Move the binary to a common location on PATH
+mv acton ~/.local/bin/
+```
+
+<Steps>
+  <Step title="Determine your active shell">
+    ```bash
+    echo $SHELL
+    # /bin/zsh  or  /bin/bash  or  /bin/fish
+    ```
+  </Step>
+  <Step title="Open your shell configuration file">
+    - **Bash:** `~/.bashrc`
+    - **Zsh:** `~/.zshrc`
+    - **Fish:** `~/.config/fish/config.fish`
+  </Step>
+  <Step title="Add the Acton directory to PATH">
+    Append this line, replacing `PATH_TO_ACTON_BIN` with the actual directory:
+
+    ```bash
+    export PATH="PATH_TO_ACTON_BIN:$PATH"
+    ```
+  </Step>
+  <Step title="Reload the shell configuration">
+    ```bash
+    source ~/.bashrc   # or ~/.zshrc
+    ```
+  </Step>
+</Steps>
+
+## Docker image
+
+Acton is published as a Docker image at `ghcr.io/ton-blockchain/acton`. This is useful for CI pipelines, ephemeral environments, or local workflows where you do not want to install the binary on the host machine.
+
+Verify that the image works and print the Acton version:
+
+```bash
+docker run --rm ghcr.io/ton-blockchain/acton:<version> --version
+```
+
+Run Acton against the current project directory from a container:
+
+```bash
+docker run --rm \
+  -v "$PWD":/workspace \
+  -w /workspace \
+  ghcr.io/ton-blockchain/acton:<version> \
+  build
+```
+
+Because the image uses `acton` as its entrypoint, replace `build` with any other subcommand such as `test`, `check`, or `fmt --check`.
+
+<Note>
+  Replace `<version>` with the specific release tag you want to use, for example `0.1.0`. Pinning the version in CI ensures reproducible builds.
+</Note>
+
+## Verifying the installation
+
+```bash
+acton --version
+```
+
+The output should be a single version line, for example:
+
+```
+acton 0.1.0
+```
+
+If the command is not found, confirm that the directory containing the `acton` binary is listed in `$PATH` and that you opened a new shell session after installation.
+
+<Tip>
+  Run `acton doctor` to print a diagnostic report covering resolved paths, manifest status, standard-library health, and relevant environment variables. This is the first thing to run when something looks wrong.
+</Tip>
+
+## Updating Acton
+
+Once Acton is installed, use the built-in `acton up` command to update to the latest release or switch between versions.
+
+<CodeGroup>
+```bash Update to latest stable
+acton up
+```
+
+```bash List available versions
+acton up --list
+```
+
+```bash Install a specific version
+acton up <VERSION_NUMBER>
+```
+
+```bash Switch to the trunk preview channel
+acton up --trunk
+```
+
+```bash Switch back to stable
+acton up --stable
+```
+</CodeGroup>
+
+<Warning>
+  `trunk` builds may include regressions or incomplete features. Use them to try upcoming changes before they land in a stable release, but always verify that a bug also reproduces on the latest stable before filing a report.
+</Warning>
+
+## Uninstalling
+
+To remove Acton binaries and cache, delete the `~/.acton` directory. To also remove global wallets and library configuration, delete `~/.config/acton`:
+
+```bash
+rm -rf ~/.acton
+rm -rf ~/.config/acton
+```
+
+## Support policy
+
+Acton is stable on the latest numbered GitHub release. The first-class platform matrix is:
+
+| Platform / Environment | Tier |
+|---|---|
+| macOS ARM64 (`aarch64-apple-darwin`) | First-class |
+| macOS x86_64 (`x86_64-apple-darwin`) | First-class |
+| Linux x86_64 GNU (`x86_64-unknown-linux-gnu`) | First-class |
+| Linux ARM64 GNU (`aarch64-unknown-linux-gnu`) | First-class |
+| Native Windows | Unsupported |
+| Windows via WSL | Beta |
+| Other source-built targets | Beta |
+
+For Linux, the documented baseline is **Ubuntu 20.04 or newer**. `trunk` builds, WSL installs, and other source-built targets are beta or best-effort surfaces — their validation is limited and regressions may occur.
+
+<Note>
+  Shell completions for Bash, Zsh, Fish, Elvish, and Nushell can be enabled with `acton completions <shell>`. See `acton completions --help` for details.
+</Note>

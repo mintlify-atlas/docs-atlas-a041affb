@@ -1,0 +1,384 @@
+---
+title: "Acton Emulation APIs — Testing, Network, Scripts, Config"
+sidebarTitle: "Emulation"
+description: "Full reference for @acton/emulation/* modules — blockchain emulation, message sending, wallet integration, and config control."
+---
+
+Acton's emulation layer makes it possible to run the full lifecycle of a TON smart contract — deploy, send messages, inspect state — without touching a real network. The same code can also target testnet or mainnet by adding `--net` to the CLI invocation. Four modules collaborate to provide this capability: `testing` provides the emulated blockchain context (treasury accounts, time control, snapshots); `network` is the unified message-sending layer that works in both emulation and broadcast modes; `scripts` supplies the wallet-based primitives needed by deployment scripts; and `config` exposes the blockchain configuration parameters (gas prices, storage fees, forward fees) so that tests can simulate different network conditions.
+
+<Note>
+Use `testing.xxx` methods only in test files (`*.test.tolk`). Use `scripts.xxx` methods only in script files (`scripts/*.tolk`). `net.xxx` and `config` types are shared between both.
+</Note>
+
+## @acton/emulation/testing
+
+This module provides the test-only API for controlling the emulated blockchain environment.
+
+```tolk
+import "@acton/emulation/testing"
+```
+
+### Treasury
+
+In tests you never connect a real wallet. Instead, call `testing.treasury` to get an unlimited source of TON:
+
+```tolk
+fun testing.treasury(name: string): Treasury
+
+struct Treasury {
+    address: address
+}
+```
+
+Calling `testing.treasury("deployer")` twice with the same name always returns the same address.
+
+### Time Control
+
+```tolk
+fun testing.setNow(now: uint32): void
+fun testing.getNow(): uint32
+```
+
+`setNow` synchronises both the emulated world state and the current VM context's C7 unixtime slot, so `blockchain.now()` immediately returns the mocked value.
+
+### Account Inspection
+
+```tolk
+fun testing.getAccountState(addr: address): TlbAccountInfo?
+fun testing.getAccountBalance(of: address): coins
+fun testing.getAccountStorageFee(addr: address, seconds: int): coins?
+fun testing.getShardAccount(addr: address): TlbShardAccount?
+fun testing.setShardAccount(addr: address, account: TlbShardAccount?): void
+fun testing.isDeployed(addr: address): bool
+```
+
+### Funding
+
+```tolk
+// Top up an address with TON (tests only — for testnet use `acton wallet airdrop`)
+fun testing.topUp(to: address, amount: coins): void
+```
+
+### Snapshots
+
+```tolk
+fun testing.saveSnapshot(pathToJsonFile: string): bool
+fun testing.loadSnapshot(pathToJsonFile: string): bool
+```
+
+### Blockchain Configuration
+
+```tolk
+fun testing.getConfig(): BlockchainConfigMap
+fun testing.setConfig(config: BlockchainConfigMap): bool
+```
+
+### Step-by-Step Execution
+
+For complex cascades where you need to inspect partial traces:
+
+```tolk
+fun testing.createTraceIterationCursor(from: address, message: OutMessage): TxCursor
+
+struct TxCursor { id: int }
+
+fun TxCursor.isDone(self): bool
+fun TxCursor.executeN(self, n: int): SendResultList
+fun TxCursor.executeTill<Msg>(self, params: SearchParams = {}): SendResultList
+fun TxCursor.executeAllRemaining(self): SendResultList
+fun TxCursor.close(self): void
+```
+
+### Single-Step Execution
+
+```tolk
+// Execute exactly one transaction without processing its out messages
+fun testing.processSingleTraceStep(from: address, message: OutMessage): SendResult
+```
+
+### Tick / Tock Transactions
+
+```tolk
+fun testing.runTickTock(onAccount: address, isTock: bool): SendResultList
+```
+
+### Library Registration
+
+```tolk
+fun testing.loadAndRegisterLibrary(hash: string): bool
+fun testing.registerLibrary(libCell: cell): void
+```
+
+---
+
+## @acton/emulation/network
+
+The network module is the heart of Acton's emulation: it routes messages either to the local emulator or, when running with `--net`, to a real network.
+
+```tolk
+import "@acton/emulation/network"
+```
+
+### Sending Internal Messages
+
+```tolk
+fun net.send(from: address, message: OutMessage): SendResultList
+```
+
+In emulation mode this recursively drains the full transaction queue and returns every resulting `SendResult`. In broadcast mode it routes through the real network when `from` matches a loaded wallet.
+
+### Sending External Messages
+
+```tolk
+fun net.createExternalMessage<TBody>(
+    dest: address,
+    body: TBody,
+    stateInit: StateInit? = null,
+    src: any_address? = null,
+): ExternalInMessage
+
+fun net.sendExternal(msg: ExternalInMessage): ExternalSendResult
+```
+
+`ExternalSendResult` captures both the success path (full `SendResultList`) and the failure path (emulator error metadata):
+
+```tolk
+struct ExternalSendResult {
+    transactions: SendResultList?
+    error: ExternalSendError?
+    destination: address
+}
+
+fun ExternalSendResult.isAccepted(self): bool
+fun ExternalSendResult.unwrap(self, location: string = ...): SendResultList
+fun ExternalSendResult.at(self, index: int, location: string = ...): SendResult
+```
+
+### Running Get Methods
+
+```tolk
+fun net.runGetMethod<Ret>(addr: address, idOrName: int | string, args: array<unknown> = []): Ret
+```
+
+```tolk
+// Single-return get method
+val balance = net.runGetMethod<coins>(wallet.address, "get_balance");
+
+// Get method with arguments
+val walletAddr = net.runGetMethod<address>(
+    minter.address,
+    "get_wallet_address",
+    [ownerAddress],
+);
+
+// Structured return type
+val data = net.runGetMethod<JettonDataReply>(minter.address, "get_jetton_data");
+```
+
+### SendResult and SendResultList
+
+```tolk
+struct SendResult {
+    tx: Cell<TlbTransaction>
+    lt: int
+    childTxs: ChildTxsIds
+    parentLt: int?
+    outActions: Cell<TlbOutList>
+    outMessages: OutMessages
+    gasUsed: int
+    externals: ExtOutList
+}
+
+type SendResultList = BigArray<SendResult>
+
+fun SendResultList.at(self, index: int): SendResult
+fun SendResultList.giveName(self, nameForUI: string): void
+fun SendResultList.hideTraceFromUi(self): void
+fun SendResultList.findTransaction<Msg>(self, params: SearchParams = {}): TlbTransaction?
+fun SendResultList.findExternalOutMessage<TBody>(self, params: ExternalOutSearchParams = {}): ...
+```
+
+### Broadcast Mode Helpers
+
+```tolk
+fun net.isBroadcasting(): bool
+fun net.enableBroadcast(): void
+fun net.disableBroadcast(): void
+```
+
+### Utility
+
+```tolk
+fun randomAddress(name: string? = null, wc: int = BASECHAIN): address
+fun net.registerAddress(addr: address, name: string): void
+fun net.registerCodeCell(code: cell, name: string): void
+fun net.loadLibrary(hash: string): cell?
+```
+
+---
+
+## @acton/emulation/scripts
+
+Scripts interact with real wallets. This module provides the counterparts to the testing-only methods.
+
+```tolk
+import "@acton/emulation/scripts"
+```
+
+### Wallet
+
+```tolk
+fun scripts.wallet(name: string): ActonWallet
+
+struct ActonWallet {
+    address: address
+}
+
+fun ActonWallet.toKeyPair(self): KeyPair
+fun ActonWallet.privateKey(self): int
+fun ActonWallet.publicKey(self): int
+fun ActonWallet.walletId(self): int
+fun ActonWallet.sign(self, data: cell): slice
+fun ActonWallet.rawSign(self, data: int): slice
+```
+
+Without `--net` the wallet behaves like an emulated treasury. With `--net` it resolves to the real wallet from `wallets.toml` or `global.wallets.toml`.
+
+### Account Queries
+
+```tolk
+fun scripts.fetchAccountState(addr: address): TlbAccountInfo?
+fun scripts.fetchAccountBalance(of: address): coins
+fun scripts.fetchAccountStorageFee(addr: address, seconds: int): coins?
+fun scripts.fetchShardAccount(addr: address): TlbShardAccount?
+fun scripts.isContractDeployed(addr: address): bool
+fun scripts.fetchConfig(): BlockchainConfigMap
+```
+
+### Deployment Script Example
+
+```tolk
+import "@acton/emulation/scripts"
+import "@acton/emulation/network"
+import "@acton/build"
+import "@acton/io"
+
+fun main() {
+    val deployer = scripts.wallet("deployer");
+
+    val counter = Counter.fromStorage({
+        id: 8,
+        counter: 0,
+    });
+
+    println("Deploying Counter to {}", counter.address);
+
+    val result = net.send(deployer.address, counter.deploy(deployer.address, ton("0.05")));
+    result.waitForFirstTransaction();
+
+    println("Deployed at {}", counter.address);
+
+    val balance = scripts.fetchAccountBalance(counter.address);
+    println("Balance: {:ton}", balance);
+}
+```
+
+---
+
+## @acton/emulation/config
+
+The config module exposes blockchain configuration parameters (gas prices, storage prices, message forward prices) in a type-safe way.
+
+```tolk
+import "@acton/emulation/config"
+```
+
+### BlockchainConfigMap
+
+```tolk
+type BlockchainConfigMap = map<uint32, cell>
+
+// Low-level raw access
+fun BlockchainConfigMap.getParamRaw(self, index: uint32): cell
+fun BlockchainConfigMap.setParamRaw(mutate self, index: uint32, data: cell): void
+
+// Global version (Param 8)
+fun BlockchainConfigMap.getGlobalVersion(self): GlobalVersion
+fun BlockchainConfigMap.setGlobalVersion(mutate self, version: GlobalVersion): void
+
+// Storage prices (Param 18)
+fun BlockchainConfigMap.getStoragePrices(self): StoragePricesDict
+fun BlockchainConfigMap.setStoragePrices(mutate self, prices: StoragePricesDict): void
+
+// Gas prices (Param 20 = masterchain, Param 21 = basechain)
+fun BlockchainConfigMap.getGasPrices(self, chainType: int): GasPrices
+fun BlockchainConfigMap.setGasPrices(mutate self, prices: GasPrices, chainType: int): void
+
+// Message forward prices (Param 24 = masterchain, Param 25 = basechain)
+fun BlockchainConfigMap.getMsgForwardPrices(self, chainType: int): MsgForwardPrices
+fun BlockchainConfigMap.setMsgForwardPrices(mutate self, prices: MsgForwardPrices, chainType: int): void
+
+// Precompiled contracts (Param 45)
+fun BlockchainConfigMap.getPrecompiledContractsConfig(self): PrecompiledContractsConfig
+fun BlockchainConfigMap.setPrecompiledContractsConfig(mutate self, config: PrecompiledContractsConfig): void
+```
+
+### Key Structs
+
+```tolk
+struct (0xc4) GlobalVersion {
+    version: uint32
+    capabilities: uint64
+}
+
+struct (0xcc) StoragePrices {
+    initialUnixTime: uint32
+    bitPrice: uint64
+    cellPrice: uint64
+    masterchainBitPrice: uint64
+    masterchainCellPrice: uint64
+}
+
+struct (0xd1) GasPrices {
+    flatGasLimit: uint64
+    flatGasPrice: uint64
+    other: GasPricesExtended
+}
+
+struct (0xea) MsgForwardPrices {
+    lumpPrice: uint64
+    bitPrice: uint64
+    cellPrice: uint64
+    ihrPriceFactor: uint32
+    firstFrac: uint16
+    nextFrac: uint16
+}
+```
+
+### Modifying Config in Tests
+
+Config changes are staged in a local `BlockchainConfigMap` and only committed to the emulator when you call `testing.setConfig(config)`:
+
+```tolk
+import "@acton/emulation/testing"
+import "@acton/emulation/config"
+
+get fun `test zero-gas environment`() {
+    var config = testing.getConfig();
+
+    var storagePrices = config.getStoragePrices();
+    storagePrices.setInitial(StoragePrices {
+        initialUnixTime: 0,
+        bitPrice: 0,
+        cellPrice: 0,
+        masterchainBitPrice: 0,
+        masterchainCellPrice: 0,
+    });
+    config.setStoragePrices(storagePrices);
+
+    val ok = testing.setConfig(config);
+    Assert.equal(ok, true, "config update failed");
+
+    // subsequent transactions now pay zero storage fees
+}
+```

@@ -1,0 +1,243 @@
+---
+title: "Managing Wallets for TON Contract Deployment"
+sidebarTitle: "Wallets"
+description: "Create, import, fund, and use wallets with acton wallet: local vs global storage, wallet versions, wallets.toml config, testnet airdrop, and security best practices."
+---
+
+Acton's wallet management system lets you create, import, inspect, fund, and use TON wallets directly from the CLI. Wallets are used by deployment and interaction scripts when broadcasting to testnet or mainnet via `--net`. Without `--net`, scripts use virtual treasury wallets backed by the local emulator — so you can develop and test scripts without ever configuring a real wallet. When you're ready to go live, `acton wallet` handles the full lifecycle from creation to funded deployment.
+
+## Creating a wallet
+
+Create a new wallet with a fresh 24-word mnemonic:
+
+```bash
+# Store in the current project (wallets.toml)
+acton wallet new --name deployer --local
+
+# Store globally, shared across all projects
+acton wallet new --name shared --global
+```
+
+If `--name` or `--version` is omitted, Acton prompts interactively. The most common wallet versions are:
+
+| Version | Description |
+|---|---|
+| `v5r1` | Wallet V5 R1 — current recommended version |
+| `v4r2` | Wallet V4 R2 — widely deployed |
+| `v3r2` | Wallet V3 R2 — legacy |
+
+Request a testnet airdrop during creation:
+
+```bash
+acton wallet new --name deployer --local --airdrop
+```
+
+## Importing an existing wallet
+
+Import a wallet when you already have a mnemonic:
+
+```bash
+# Pass mnemonic on the command line
+acton wallet import --name deployer --local "word1 word2 ... word24"
+
+# Interactive import (prompts for mnemonic)
+acton wallet import
+```
+
+`acton wallet import` follows the same placement rules as `acton wallet new`: `--local` stores in `wallets.toml`, `--global` stores in `global.wallets.toml`.
+
+## Listing wallets and balances
+
+```bash
+# List all configured wallets
+acton wallet list
+
+# List with testnet balances
+acton wallet list --balance
+```
+
+Acton merges wallet definitions from `global.wallets.toml` first, then from local `wallets.toml`. If both files define the same wallet name, the local entry wins.
+
+## Funding a wallet on testnet
+
+New wallets start with zero balance. Acton provides a built-in faucet that performs a small cryptographic proof-of-work locally:
+
+```bash
+# Airdrop to an existing wallet
+acton wallet airdrop deployer --net testnet
+
+# Skip the post-airdrop balance wait
+acton wallet airdrop deployer --net testnet --no-wait-airdrop
+```
+
+The faucet grants 2 testnet TON up to twice within any 24-hour window per IP, device, and wallet.
+
+<Note>
+  For larger testnet allocations (up to 5,000 TON), use the [Testgiver TON bot](https://t.me/testgiver_ton_bot) or submit a [request form](https://builders.ton.org/opportunities/testnet).
+</Note>
+
+## The wallets.toml file
+
+Wallet configuration lives in `wallets.toml` (local) or `~/.config/acton/wallets/global.wallets.toml` (global). Acton adds both files to `.gitignore` automatically.
+
+### Mnemonic storage options
+
+Acton supports four mnemonic sources, resolved in this priority order: `mnemonic-env` → `mnemonic-file` → `mnemonic-keyring` → `mnemonic`.
+
+<Tabs>
+  <Tab title="System keyring (recommended)">
+    ```toml title="wallets.toml"
+    [wallets.deployer]
+    kind = "v5r1"
+    workchain = 0
+    keys = { mnemonic-keyring = "my-project:deployer" }
+    ```
+
+    Acton stores and retrieves the mnemonic from the native OS keyring. Preferred for local development.
+  </Tab>
+  <Tab title="Environment variable">
+    ```toml title="wallets.toml"
+    [wallets.deployer]
+    kind = "v5r1"
+    keys = { mnemonic-env = "DEPLOYER_MNEMONIC" }
+    ```
+
+    ```bash
+    export DEPLOYER_MNEMONIC="word1 word2 ... word24"
+    ```
+
+    Useful in CI/CD pipelines where secrets are injected as environment variables.
+  </Tab>
+  <Tab title="Secret file">
+    ```toml title="wallets.toml"
+    [wallets.deployer]
+    kind = "v5r1"
+    keys = { mnemonic-file = ".secrets/deployer.txt" }
+    ```
+
+    Use when secrets are managed by an external secrets manager.
+  </Tab>
+  <Tab title="Plain text (dev only)">
+    ```toml title="wallets.toml"
+    [wallets.deployer]
+    kind = "v5r1"
+    keys = { mnemonic = "word1 word2 ... word24" }
+    ```
+
+    Only acceptable for development scenarios where this tradeoff is understood.
+  </Tab>
+</Tabs>
+
+### Address safety checks
+
+Add expected addresses to catch wallet misconfiguration before real-network operations:
+
+```toml title="wallets.toml"
+[wallets.deployer]
+kind = "v5r1"
+workchain = 0
+keys = { mnemonic-keyring = "my-project:deployer" }
+
+[wallets.deployer.expected]
+address-testnet = "0QD36XRy1ISfSB8zmlSQKBsa5bmeixAWwD6vUUhOXXur8ZLd"
+```
+
+`acton wallet new` and `acton wallet import` populate `expected.address-testnet` automatically. Add `address-mainnet` manually when the same wallet targets mainnet.
+
+## Using wallets in scripts
+
+Resolve a configured wallet in a Tolk script with `scripts.wallet()`:
+
+```tolk title="scripts/deploy.tolk"
+import "@acton/emulation/scripts"
+import "@acton/io"
+import "@acton/prompts"
+
+fun main() {
+    val deployer = scripts.wallet(promptWallet("Select a wallet:"));
+    println("Deployer address: {}", deployer.address);
+}
+```
+
+Run the script against testnet to use the real configured wallet:
+
+```bash
+acton script scripts/deploy.tolk --net testnet
+```
+
+Without `--net`, `scripts.wallet()` creates a local test wallet backed by the emulator treasury. This dual behavior lets you exercise all script logic before spending real TON.
+
+### TON Connect
+
+Use `--tonconnect` with `--net` to sign transactions with an external wallet app like Tonkeeper instead of local keys:
+
+```bash
+acton script scripts/deploy.tolk --net testnet --tonconnect
+```
+
+When `--tonconnect` is active, `promptWallet()` returns `"tonconnect"`, and `scripts.wallet("tonconnect")` resolves to the connected wallet address.
+
+## Local vs global wallets
+
+| Storage | Location | Use case |
+|---|---|---|
+| Local | `wallets.toml` in project root | Project-specific wallets |
+| Global | `~/.config/acton/wallets/global.wallets.toml` | Shared across multiple projects |
+
+Local entries override global entries with the same name. When a project has access to global wallets, Acton places a `global.wallets.toml` symlink in the project root.
+
+## Additional wallet operations
+
+### Export mnemonic
+
+```bash
+acton wallet export-mnemonic deployer
+```
+
+Interactive only — asks for confirmation before revealing the mnemonic. Use when migrating a wallet to another tool.
+
+### Remove a wallet
+
+```bash
+# Interactive removal
+acton wallet remove deployer
+
+# Non-interactive
+acton wallet remove deployer -y
+```
+
+If the wallet uses keyring storage, Acton also removes the mnemonic from the secure store. If the wallet uses an environment variable or file reference, only the wallet entry is removed.
+
+### Sign an external message body
+
+```bash
+acton wallet sign deployer --body <HEX_OR_BASE64_BOC>
+
+# Or pipe from stdin
+cat body.boc.base64 | acton wallet sign deployer
+```
+
+Acton auto-detects hex and Base64 input and prints the signed external-body BoC in hex.
+
+## Security guidelines
+
+<Warning>
+  `wallets.toml` and `global.wallets.toml` can contain sensitive material directly or reference external secrets. Handle them with care.
+</Warning>
+
+<CardGroup cols={2}>
+  <Card title="Prefer keyring" icon="lock">
+    Use `mnemonic-keyring` for local development — the OS keyring keeps the mnemonic out of config files entirely.
+  </Card>
+  <Card title="Use env vars in CI" icon="server">
+    Use `mnemonic-env` in CI/CD pipelines where secrets are injected as environment variables.
+  </Card>
+  <Card title="Never reuse across networks" icon="shield-x">
+    Use separate wallets for testnet and mainnet. Cross-environment reuse is a significant security risk.
+  </Card>
+  <Card title="Test before broadcasting" icon="flask">
+    Always run scripts without `--net` first. The local emulator is free and instant.
+  </Card>
+</CardGroup>
+
+Both `acton new` and `acton init` add `wallets.toml` to `.gitignore` automatically. Verify this is in place before committing.

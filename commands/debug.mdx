@@ -1,0 +1,219 @@
+---
+title: "acton debug — source-level Tolk debugging"
+sidebarTitle: "debug"
+description: "Enable the DAP debugger for acton test and acton script, set breakpoints in Tolk source, inspect TVM registers, and connect VS Code or JetBrains."
+---
+
+Acton does not have a standalone `acton debug` command. Instead, source-level debugging is activated by passing `--debug` to `acton test` or `acton script`. When the flag is present, Acton compiles the target code with debug metadata and source maps, then starts a local [Debug Adapter Protocol (DAP)](https://microsoft.github.io/debug-adapter-protocol/) server that any compatible editor can attach to — including VS Code and IntelliJ/JetBrains IDEs.
+
+<Note>
+  For replaying a real historical transaction with source-level stepping, use `acton retrace <HASH> --contract <NAME> --debug`. That command is documented separately in the [Command Reference](/commands/overview).
+</Note>
+
+## Debug flags reference
+
+### acton test --debug
+
+```bash
+acton test [PATH] --debug [--debug-port PORT] [--backtrace MODE] [OPTIONS]
+```
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--debug` | flag | — | Enable the DAP debug server for test execution |
+| `--debug-port` | number | `12345` | Port for the DAP server on `127.0.0.1` |
+| `--backtrace` | enum | — | Backtrace mode without the debugger: `full` |
+| `--filter` | string | — | Regex filter — narrow to one test for debug sessions |
+| `--verbose` | flag | — | Increase executor log verbosity (level 1) |
+
+### acton script --debug
+
+```bash
+acton script <PATH> --debug [--debug-port PORT] [--backtrace MODE] [OPTIONS]
+```
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--debug` | flag | — | Enable the DAP debug server for script execution |
+| `--debug-port` | number | `12345` | Port for the DAP server on `127.0.0.1` |
+| `--backtrace` | enum | — | Backtrace mode without the debugger: `full` |
+| `--net` | string | — | Broadcast network (omit for local emulation) |
+
+## Starting a debug session
+
+<Tabs>
+  <Tab title="Debug a test">
+    ```bash
+    # Narrow to one test with --filter, then attach
+    acton test tests/counter.test.tolk --filter "deploy" --debug --debug-port 4711
+    ```
+
+    Acton prints `DAP server listening on 127.0.0.1:4711` when ready. Attach from your editor next.
+
+    <Tip>
+      For broad test suites, always narrow with `--filter`. Debugging all tests at once produces confusing interleaved stops and is much slower.
+    </Tip>
+  </Tab>
+  <Tab title="Debug a script">
+    ```bash
+    acton script scripts/deploy.tolk --debug --debug-port 4711
+    ```
+
+    Script debugging runs the local emulation path. When `--net` is also set, Acton steps through the script logic but does not provide source-level stepping inside the actual on-chain wallet broadcast after the script hands off to the network.
+  </Tab>
+</Tabs>
+
+## Connecting VS Code
+
+### Using the TON VS Code extension (recommended)
+
+Install the [TON VS Code extension](https://marketplace.visualstudio.com/items?itemName=ton.ton-tolk). The extension adds a dedicated **Tolk** debugger type and can auto-launch `acton test --debug` or `acton script --debug` from the IDE run panel.
+
+### Manual launch.json setup
+
+If you prefer a manual configuration, create `.vscode/launch.json` in your project:
+
+```json title=".vscode/launch.json"
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "tolk",
+      "request": "launch",
+      "name": "Debug Test",
+      "debugServer": 4711
+    },
+    {
+      "type": "tolk",
+      "request": "launch",
+      "name": "Debug Script",
+      "debugServer": 4712
+    }
+  ]
+}
+```
+
+Then start the matching Acton command in a terminal **before** launching the VS Code debug configuration:
+
+```bash
+# Terminal 1: start the debug server
+acton test tests/counter.test.tolk --filter "deploy" --debug --debug-port 4711
+
+# Then launch "Debug Test" from the VS Code Run and Debug panel
+```
+
+<Note>
+  The Acton DAP server must be running and listening before you launch the VS Code configuration. The server prints a ready message when it is accepting connections.
+</Note>
+
+## Debugger capabilities
+
+The Acton debugger supports:
+
+| Feature | Supported |
+|---|---|
+| Source breakpoints | ✅ |
+| Conditional breakpoints | ✅ (fail-loud — evaluation failures surface as stops) |
+| Continue, step over, step into, step out | ✅ |
+| Instruction-level stepping | ✅ |
+| Exception break filters | ✅ (`Uncaught Exceptions`, `All Exceptions`) |
+| Stack traces | ✅ |
+| Local variable inspection | ✅ (tuples, maps, arrays, structs, cells, unions) |
+| Hover, watch, and debug-console evaluation | ✅ (side-effect-free subset) |
+| `Registers` scope (c4 storage, c5 actions, c7 temp) | ✅ (live sessions only) |
+| Nested send/get-method child sessions | ✅ |
+| Step-back | ❌ |
+| Data breakpoints | ❌ |
+| Function breakpoints | ❌ |
+
+### The Registers scope
+
+Live debug sessions (test and script) expose a `Registers` scope in the Variables panel:
+
+- **`c4 (storage)`** — current contract storage, rendered in structured contract-aware form
+- **`c5 (output actions)`** — output actions already prepared in the current execution
+- **`c7 (temporary data)`** — runtime temporary data
+
+This scope is available only for live sessions. `acton retrace --debug` sessions (replay mode) do not have the live register view.
+
+### Expression evaluation limits
+
+Evaluation in watches, hover, and conditional breakpoints supports:
+
+- Local variables from the selected frame
+- Field access (`foo.bar`) and numeric indexing (`foo.items.0`)
+- Boolean, string, integer, and `null` literals
+- `!`, unary `-`, `&&`, `||`, `==`, `!=`, `<`, `<=`, `>`, `>=`
+- Typed cell casts: `someCell as Cell<Foo>` or `someSlice as Cell<Foo>`
+
+**Not supported:** function calls, mutations, arbitrary arithmetic, general type casts.
+
+<Warning>
+  `evaluate` is an inspection feature, not a full Tolk REPL. Use it for watches and conditional breakpoints, not for validating complex logic end to end.
+</Warning>
+
+## Backtraces without the live debugger
+
+When you need source locations and call-path attribution without setting up the full DAP workflow, use `--backtrace full`:
+
+```bash
+acton test --backtrace full
+acton script scripts/deploy.tolk --backtrace full
+```
+
+Backtraces are the middle layer between plain terminal output and the interactive debugger. They show the chain of nested contract calls that led to a failure, including nested message-driven callers. Acton automatically prepares the required debug metadata — no extra build step needed.
+
+<Warning>
+  `--backtrace full` is noticeably slower and more memory-hungry than a plain run because Acton compiles with richer debug metadata. Do not use it as the default for large test suites — narrow to the relevant file or use `--filter` first.
+</Warning>
+
+## Debugging decision guide
+
+| Question | Best tool |
+|---|---|
+| Print a value from a test or script | `println(...)` |
+| Print a value from TVM contract code | `debug.print*` |
+| Inspect a transaction tree quickly | `println(txs)` / matcher output |
+| Get source locations without a live debugger | `--backtrace full` |
+| Set breakpoints and step through Tolk code | `acton test --debug` or `acton script --debug` |
+| Debug a real historical on-chain transaction | `acton retrace <HASH> --contract <NAME> --debug` |
+
+## Examples
+
+<CodeGroup>
+
+```bash Debug a single test
+acton test tests/counter.test.tolk --filter "deploy" --debug --debug-port 4711
+```
+
+```bash Debug a deployment script
+acton script scripts/deploy.tolk --debug --debug-port 4711
+```
+
+```bash Backtrace without debugger
+acton test --backtrace full
+```
+
+```bash Backtrace on a script
+acton script scripts/deploy.tolk --backtrace full
+```
+
+```bash Debug a script with verbose executor logs
+acton script scripts/deploy.tolk --debug --verbose
+```
+
+</CodeGroup>
+
+## Practical limits
+
+- `acton test --debug` is a poor fit for running an entire test suite — narrow to one test with `--filter`.
+- Live stepping into remote or forked contracts may still run, but source-level fidelity depends on having matching local debug info.
+- `acton script --debug` does not provide source-level stepping inside the real on-chain wallet broadcast after the script hands control to the network.
+- The debugger does not support step-back, data breakpoints, function breakpoints, or restart-style flows.
+
+## See Also
+
+- [Debugging guide](/guides/debug) — full debugging reference including retrace, fork testing, and snapshots
+- `acton retrace` (see [Command Reference](/commands/overview)) — replay a historical transaction with source-level debugging
+- [`acton test`](/commands/test) — full test command reference
+- [`acton script`](/commands/script) — full script command reference

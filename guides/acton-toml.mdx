@@ -1,0 +1,533 @@
+---
+title: "Acton.toml Complete Configuration Reference"
+sidebarTitle: "Acton.toml"
+description: "Full reference for every section and field in Acton.toml: package, toolchain, contracts, build, test, lint, fmt, localnet, scripts, import-mappings, and networks."
+---
+
+`Acton.toml` is the project manifest for every Acton project. It defines package metadata, declares smart contracts, configures the build and test systems, sets lint and formatter defaults, registers deployment networks, and maps import aliases. The file conforms to the [TOML 1.1 specification](https://toml.io/en/v1.1.0). Every relative path in the manifest is resolved from the project root — the directory that contains `Acton.toml`.
+
+## Project root resolution
+
+Acton resolves the project root for each CLI invocation using the following rules, in order of priority:
+
+1. **`--project-root <PATH>`** — sets the project root explicitly; no upward search is performed.
+2. **Auto-detection** — Acton walks from the current directory up through parent directories (stopping at the Git boundary) looking for `Acton.toml`. The directory that contains the found manifest becomes the project root.
+3. **Fallback** — if no `Acton.toml` is found, the current working directory becomes the project root.
+
+`--manifest-path <PATH>` selects which `Acton.toml` to load for configuration purposes but does **not** change project root resolution or rebase unrelated CLI path flags.
+
+### Path resolution rules
+
+| Path source | Resolved relative to |
+|:------------|:--------------------|
+| Paths inside `Acton.toml` | Project root |
+| CLI path flags (`--out-dir`, `--output`, …) | Current working directory |
+
+**Examples:**
+- `[build].out-dir = "artifacts"` writes under `<project-root>/artifacts`.
+- `acton build --out-dir artifacts` writes under `<cwd>/artifacts`.
+- `[wrappers.tolk].output-dir = "wrappers"` resolves from project root, but `acton wrapper Counter --output-dir wrappers` resolves from the current working directory.
+
+---
+
+## `[package]`
+
+Defines project metadata displayed in tooling and published registries.
+
+| Field | Type | Required | Description |
+|:------|:-----|:---------|:------------|
+| `name` | string | **Yes** | Project name. |
+| `description` | string | **Yes** | Short description of the project. |
+| `version` | string | **Yes** | Current version, e.g. `0.1.0`. |
+| `repository` | string | No | URL of the source code repository. |
+| `license` | string | No | License identifier, e.g. `MIT`. |
+
+```toml title="Acton.toml"
+[package]
+name = "my-awesome-contract"
+description = "A project with Tolk smart contracts"
+version = "0.1.0"
+repository = "https://github.com/user/my-awesome-contract"
+license = "MIT"
+```
+
+---
+
+## `[toolchain]`
+
+Pins project-level tooling versions. Acton checks this section before running any project command and exits with an error when the installed CLI version does not match.
+
+| Field | Type | Required | Description |
+|:------|:-----|:---------|:------------|
+| `acton` | string | No | Required Acton CLI version without a leading `v`, e.g. `0.1.0`. |
+
+```toml title="Acton.toml"
+[toolchain]
+acton = "0.1.0"
+```
+
+`acton up` remains available even when the installed version does not match, so you can install the expected version from within the project directory.
+
+---
+
+## `[contracts]`
+
+A map where each key is a contract name and the value is a contract configuration object. Contract names are used throughout the CLI (`acton build Counter`, `acton verify Counter`) and in `[lint.rules.<Name>]` overrides.
+
+| Field | Type | Required | Description |
+|:------|:-----|:---------|:------------|
+| `display-name` | string | No | Human-readable name. Defaults to the contract key. |
+| `src` | string | **Yes** | Path to the contract `.tolk` source file or a precompiled `.boc`. |
+| `types` | string | No | Tolk interface file used to produce ABI for a precompiled `.boc`. |
+| `depends` | array | No | List of contract dependencies (simple names or detailed objects). |
+| `output` | string | No | Custom path where the compiled `.boc` should be saved. |
+
+```toml title="Acton.toml"
+[contracts.Counter]
+display-name = "Counter Contract"
+src = "contracts/Counter.tolk"
+
+[contracts.Wallet]
+src = "contracts/Wallet.tolk"
+depends = ["Counter"]
+```
+
+### Precompiled `.boc` contracts
+
+When `src` points to a `.boc` file, set `types` to a Tolk interface file so Acton can produce ABI and generate wrappers. Do not list the `.boc` contract itself as a dependency of other contracts — list it as a dependency of the `.tolk` contract that needs it.
+
+```toml title="Acton.toml"
+[contracts.Precompiled]
+src = "contracts/Precompiled.boc"
+types = "contracts/Precompiled.types.tolk"
+```
+
+### Contract dependencies
+
+Dependencies can be specified in two formats:
+
+**Simple** — just the name of another contract from `[contracts]`:
+
+```toml title="Acton.toml"
+depends = ["ChildContract"]
+```
+
+**Detailed** — an object with additional settings:
+
+```toml title="Acton.toml"
+[contracts.MainContract]
+src = "contracts/MainContract.tolk"
+depends = [
+    "ChildContract",
+    { name = "LibraryContract", kind = "library_ref", function = "get_lib_code" }
+]
+```
+
+| Detailed field | Description |
+|:---------------|:------------|
+| `name` | Name of the contract to depend on. |
+| `kind` | `embed_code` (default) or `library_ref`. |
+| `function` | Custom name for the generated code function. |
+| `path` | Custom output path for the generated code file (relative to project root). |
+
+---
+
+## `[build]`
+
+Configures default output directories for `acton build`. CLI flags override these values for a single run and are resolved from the current working directory.
+
+| Field | Type | Default | Description |
+|:------|:-----|:--------|:------------|
+| `out-dir` | string | `build` | Directory for build JSON artifacts. |
+| `gen-dir` | string | `gen` | Directory for generated dependency files. |
+| `output-abi` | string | `build/abi` | Directory for contract ABI JSON files. |
+| `output-fift` | string | — | Directory for compiled Fift files (one per `.tolk` contract). |
+
+```toml title="Acton.toml"
+[build]
+out-dir = "build"
+gen-dir = "gen"
+output-abi = "build/abi"
+output-fift = "build/fift"
+```
+
+Precompiled `.boc` contracts emit ABI only when their entry sets `types`; they never emit Fift output.
+
+---
+
+## `[wrappers]`
+
+Configures default output locations for `acton wrapper`. CLI flags override these values for a single run.
+
+### `[wrappers.tolk]`
+
+| Field | Type | Default | Description |
+|:------|:-----|:--------|:------------|
+| `output-dir` | string | `wrappers/` | Default directory for generated Tolk wrappers. |
+| `generate-test` | boolean | `false` | Generate a Tolk test stub by default. |
+| `test-output-dir` | string | — | Default directory for generated test stubs. |
+
+### `[wrappers.typescript]`
+
+| Field | Type | Default | Description |
+|:------|:-----|:--------|:------------|
+| `output-dir` | string | — | Default directory for generated TypeScript wrappers. |
+
+```toml title="Acton.toml"
+[wrappers.tolk]
+output-dir = "wrappers"
+generate-test = true
+test-output-dir = "tests"
+
+[wrappers.typescript]
+output-dir = "app/src/wrappers-ts"
+```
+
+---
+
+## `[fmt]`
+
+Configures defaults for `acton fmt`. CLI flags override these values for a single run.
+
+| Field | Type | Default | Description |
+|:------|:-----|:--------|:------------|
+| `width` | integer | `100` | Maximum formatted line width. |
+| `ignore` | string[] | — | Glob patterns of files to exclude during recursive traversal. |
+| `separate-import-groups` | boolean | `false` | Insert a blank line between import groups. |
+
+Import groups are ordered as: `@stdlib`, `@acton`, `@<other>`, plain imports (`import "foo"`), `./`, `../`.
+
+```toml title="Acton.toml"
+[fmt]
+width = 100
+ignore = ["contracts/generated/*.tolk"]
+separate-import-groups = true
+```
+
+<Note>
+  A file passed explicitly to `acton fmt` is still formatted even if it matches an `ignore` pattern. Ignore patterns apply only during directory traversal.
+</Note>
+
+---
+
+## `[localnet]`
+
+Configures defaults for `acton localnet` commands. CLI flags override these values for a single run.
+
+| Field | Type | Default | Description |
+|:------|:-----|:--------|:------------|
+| `port` | integer | `5411` | Port used by `acton localnet` commands. |
+| `fork-net` | string | — | Network to fork when starting localnet (`testnet` or `mainnet`). |
+| `fork-block-number` | integer | — | Block sequence number for historical state fork. |
+| `accounts` | string[] | — | Wallet names from `[wallets]` to auto-fund and deploy on `localnet start`. |
+| `rate-limit` | integer | — | Maximum API requests per second to simulate provider limits. |
+
+```toml title="Acton.toml"
+[localnet]
+port = 3010
+fork-net = "testnet"
+fork-block-number = 55000000
+accounts = ["deployer", "user"]
+rate-limit = 1
+```
+
+---
+
+## `[test]`
+
+Configures the behaviour of `acton test`. CLI flags override these values for a single run.
+
+| Field | Type | Default | Description |
+|:------|:-----|:--------|:------------|
+| `filter` | string | — | Regex pattern to filter tests by name. |
+| `reporter` | string[] | `["console"]` | Reporters: `console`, `teamcity`, `junit`, `dot`. |
+| `debug` | boolean | `false` | Enable debug mode. |
+| `debug-port` | integer | `12345` | Port for the DAP debug server. |
+| `backtrace` | string | — | Set to `full` to collect full stack traces on failure. |
+| `exclude` | string[] | — | Glob patterns of files to exclude from testing. |
+| `include` | string[] | — | Glob patterns of files to include in testing. |
+| `junit-path` | string | — | Directory for JUnit XML reports. |
+| `junit-merge` | boolean | `false` | Merge all test results into a single JUnit file. |
+| `fork-net` | string | — | Network to fork for state (`mainnet`, `testnet`). |
+| `fork-block-number` | integer | — | Block number to fork from. |
+| `fail-fast` | boolean | `false` | Stop after the first test failure. |
+| `fail-on-diff` | boolean | `false` | Exit non-zero when profiling differs from baseline snapshot. |
+| `ui` | boolean | `false` | Enable the browser Test UI server. |
+| `ui-port` | integer | `12344` | Port for the browser Test UI server. |
+
+### `[test.coverage]`
+
+| Field | Type | Default | Description |
+|:------|:-----|:--------|:------------|
+| `enabled` | boolean | `false` | Enable code coverage collection. |
+| `format` | string | `lcov` | Report format: `lcov` or `text`. |
+| `output-file` | string | — | Path to save the coverage report. |
+| `minimum-percent` | float | — | Minimum total line coverage; fails non-UI runs below this score. |
+| `include-wrappers` | boolean | `false` | Include `@wrappers` files in coverage reports. |
+| `include-tests` | boolean | `false` | Include `.test.tolk` files in coverage reports. |
+
+### `[test.fuzz]`
+
+| Field | Type | Default | Description |
+|:------|:-----|:--------|:------------|
+| `runs` | integer | `256` | Number of accepted fuzz cases per fuzz test. |
+| `max-test-rejects` | integer | `runs × 256` | Maximum `assume(...)` rejections before the fuzz test fails. |
+| `seed` | integer | — | Seed for reproducible fuzz input generation. |
+
+### `[test.mutation]`
+
+| Field | Type | Description |
+|:------|:-----|:------------|
+| `diff` | string | Changed-line scope: `worktree`, `ref`, or `branch`. |
+| `diff-ref` | string | Base ref used by `ref` mode and optional override for `branch`. |
+| `mutation-levels` | string[] | Levels to run: `critical`, `major`, `minor`. |
+| `minimum-percent` | float | Minimum mutation score required for the run to succeed. |
+| `disable-rules` | string[] | Rule IDs to disable during mutation testing. |
+| `rules-file` | string | Path to a JSON file with custom query-based mutation rules. |
+
+```toml title="Acton.toml"
+[test]
+reporter = ["console", "junit"]
+fail-fast = true
+
+[test.coverage]
+enabled = true
+format = "lcov"
+minimum-percent = 80
+
+[test.fuzz]
+runs = 512
+seed = 42
+
+[test.mutation]
+diff = "branch"
+mutation-levels = ["critical", "major"]
+minimum-percent = 85
+```
+
+---
+
+## `[lint]`
+
+Configures `acton check`. Use `[lint]` for global settings, `[lint.rules]` for project-wide rule levels, and `[lint.rules.<ContractName>]` for per-contract overrides.
+
+### General settings
+
+| Field | Type | Description |
+|:------|:-----|:------------|
+| `exclude` | string[] | Glob patterns for files to exclude from lint diagnostics. |
+| `max-warnings` | integer | Maximum warnings before `acton check` exits non-zero. Default: unlimited. |
+| `output-format` | string | Default report format: `plain`, `json`, `sarif`, `github`, or `gitlab`. |
+
+### `[lint.rules]`
+
+Specify rule severities for the entire project:
+
+```toml title="Acton.toml"
+[lint.rules]
+unused-variable = "deny"
+mutable-variable-can-be-immutable = "warn"
+unauthorized-access = "warn"
+```
+
+| Level | Effect |
+|:------|:-------|
+| `allow` | Disables the rule. |
+| `warn` | Reports as a warning. |
+| `deny` | Reports as an error; causes non-zero exit. |
+
+### `[lint.rules.<ContractName>]`
+
+Override rule levels for a specific contract. The name must match the key used in `[contracts.<Name>]`:
+
+```toml title="Acton.toml"
+[lint]
+max-warnings = 0
+exclude = ["contracts/generated/*.tolk"]
+output-format = "sarif"
+
+[lint.rules]
+unused-variable = "deny"
+
+[lint.rules.Counter]
+unused-variable = "allow"
+```
+
+---
+
+## `[networks]`
+
+Defines custom network configurations used by `--net` and `--fork-net`. `mainnet`, `testnet`, and `localnet` are built-in. Extra entries are referenced as `custom:<name>`.
+
+| Field | Type | Required | Description |
+|:------|:-----|:---------|:------------|
+| `api.v2` | string | Yes (custom) | TON Center API v2 URL. |
+| `api.v3` | string | No | TON Center API v3 URL. |
+| `explorer` | string | No | Base explorer URL. Acton appends `/tx/<hash>` automatically. |
+
+For `localnet`, if `api.v2` and `api.v3` are omitted, Acton derives them from `[localnet].port` (falling back to port `5411`).
+
+```toml title="Acton.toml"
+[networks.localnet]
+explorer = "http://127.0.0.1:3006"
+
+[networks.my-custom-net]
+api = { v2 = "https://my-custom-net.com/api/v2", v3 = "https://my-custom-net.com/api/v3" }
+explorer = "https://my-custom-net.com/explorer"
+```
+
+Use custom networks in commands:
+
+```bash
+acton script --net custom:my-custom-net
+acton test --fork-net custom:my-custom-net
+```
+
+---
+
+## `[scripts]`
+
+Defines custom shell commands or Tolk scripts runnable via `acton run <name>`.
+
+```toml title="Acton.toml"
+[scripts]
+deploy = "acton script scripts/deploy.tolk"
+check-all = "acton test --filter='.*_check'"
+```
+
+Run a script with:
+
+```bash
+acton run deploy
+```
+
+---
+
+## `[import-mappings]`
+
+Defines path aliases for the Tolk compiler. Mappings allow importing files using logical names (`@core/math`) instead of relative paths (`../../libs/core/math`).
+
+| Format | Example | Behaviour |
+|:-------|:--------|:----------|
+| Without `@` prefix (preferred) | `utils = "./libs/utils"` | `@` is prepended automatically |
+| With `@` prefix | `"@core" = "./libs/core"` | Used as-is |
+
+```toml title="Acton.toml"
+[import-mappings]
+utils = "./libs/utils"
+"@core" = "./libs/core"
+```
+
+In Tolk source files:
+
+```tolk
+import "@core/math"    // Resolves to ./libs/core/math.tolk
+import "@utils/logic"  // Resolves to ./libs/utils/logic.tolk
+```
+
+### Built-in project mappings
+
+Projects created with `acton new` include these default mappings:
+
+| Mapping | Default path | Common use |
+|:--------|:-------------|:-----------|
+| `@acton` | `.acton` | Standard library: `@acton/testing/expect` |
+| `@contracts` | `contracts` | Contract-side modules: `@contracts/types` |
+| `@tests` | `tests` | Shared test helpers and fixtures |
+| `@wrappers` | `wrappers` | Generated wrappers: `@wrappers/Counter.gen` |
+| `@gen` | `gen` | Generated dependency helper files |
+
+### Prefix resolution rules
+
+- Acton matches the first path segment (before the first `/`) against defined mappings.
+- Keys without a leading `@` are normalised by prepending `@`.
+- Relative values are resolved from the project root.
+- Absolute values are used as-is.
+
+---
+
+## Complete example
+
+```toml title="Acton.toml"
+[package]
+name = "my-ton-project"
+description = "A TON smart contract project"
+version = "0.1.0"
+repository = "https://github.com/example/my-ton-project"
+license = "MIT"
+
+[toolchain]
+acton = "0.1.0"
+
+[contracts.Counter]
+display-name = "Counter Contract"
+src = "contracts/Counter.tolk"
+
+[contracts.Jetton]
+display-name = "Jetton Minter"
+src = "contracts/Jetton.tolk"
+depends = ["Counter"]
+
+[build]
+out-dir = "build"
+gen-dir = "gen"
+output-abi = "build/abi"
+
+[wrappers.tolk]
+output-dir = "wrappers"
+generate-test = true
+
+[wrappers.typescript]
+output-dir = "app/src/wrappers-ts"
+
+[fmt]
+width = 100
+ignore = ["contracts/generated/*.tolk"]
+separate-import-groups = true
+
+[localnet]
+port = 3010
+accounts = ["deployer"]
+
+[test]
+reporter = ["console", "junit"]
+fail-fast = false
+
+[test.coverage]
+enabled = false
+format = "lcov"
+minimum-percent = 80
+
+[lint]
+max-warnings = 0
+exclude = ["contracts/generated/*.tolk"]
+
+[lint.rules]
+unused-variable = "deny"
+mutable-variable-can-be-immutable = "warn"
+
+[lint.rules.Counter]
+unused-variable = "allow"
+
+[networks.localnet]
+explorer = "http://127.0.0.1:3010/explorer"
+
+[networks.staging]
+api = { v2 = "https://staging.example.com/api/v2" }
+explorer = "https://staging.example.com/explorer"
+
+[scripts]
+deploy = "acton script scripts/deploy.tolk"
+
+[import-mappings]
+contracts = "./contracts"
+tests = "./tests"
+wrappers = "./wrappers"
+gen = "./gen"
+```
+
+---
+
+## Additional properties
+
+Acton allows arbitrary metadata fields in any section of `Acton.toml`. These fields are ignored by Acton but can be read by third-party tools or used for project-specific annotations.

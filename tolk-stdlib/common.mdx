@@ -1,0 +1,389 @@
+---
+title: "Tolk Common Module — Types, Cells, Maps, and Messages"
+sidebarTitle: "Common"
+description: "Complete reference for Tolk's auto-imported common module — primitive types, contract storage, cell/slice/builder ops, map, array, and message helpers."
+---
+
+The `common` module is the foundation of every Tolk program. It is automatically imported into all Tolk source files without any explicit `import` statement and provides the complete set of primitive types, cell manipulation functions, map and array utilities, contract storage access, message creation helpers, address operations, and send-mode constants. Understanding `common` is essential for writing any TON smart contract in Tolk.
+
+## Primitive Types
+
+### Numeric Types
+
+```tolk
+type int = builtin          // 257-bit signed integer — the universal TVM integer
+type bool = builtin         // true (-1 at TVM level) or false (0)
+type coins = builtin        // nanotoncoins; use ton("0.05") to create
+type intN = builtin         // int8, int32, int128, ... — serialisation-constrained int (N ≤ 257)
+type uintN = builtin        // uint32, uint64, uint256, ... — unsigned variant (N ≤ 256)
+type varint16 = builtin     // variadic signed int, -2^119 ≤ X < 2^119
+type varuint16 = builtin    // variadic unsigned int, 0 ≤ X < 2^120
+type varint32 = builtin     // variadic signed int, -2^247 ≤ X < 2^247
+type varuint32 = builtin    // variadic unsigned int, 0 ≤ X < 2^248
+```
+
+### Cell Types
+
+```tolk
+type cell = builtin         // up to 1023 bits + up to 4 refs
+type slice = builtin        // cell opened for reading
+type builder = builtin      // cell at the stage of creation
+type continuation = builtin // executable TVM bytecode
+
+// Typed cell wrapper — T is not loaded eagerly, call .load() explicitly
+struct Cell<T> { private readonly tvmCell: cell }
+```
+
+### Address Types
+
+```tolk
+type address = builtin      // standard internal address: workchain + hash (267 bits)
+type any_address = builtin  // internal / external / none address
+
+// Nullable address? serialises as addr_none$00 when null
+```
+
+### Container Types
+
+```tolk
+struct map<K, V> { private tvmDict: dict }  // typed TVM dict; key must be fixed-width
+struct array<T> { private tvmTuple: tuple } // 0..255 elements, backed by TVM tuple
+struct lisp_list<T> { ... }                 // prepend-only linked list, unbounded length
+type tuple = array<unknown>
+type dict = cell?
+```
+
+### String Type
+
+```tolk
+type string = builtin  // cell in snake format (data + optional ref to next cell)
+type bitsN = builtin   // bits256, bits128, etc — fixed-width slice, 0 refs
+type bytesN = builtin  // bytes8 = bits64; convenient alias for bitsN*8
+```
+
+---
+
+## Numeric Utilities
+
+```tolk
+fun ton(floatString: string): coins   // compile-time; ton("0.05") = 50_000_000
+
+fun min(x: int, y: int): int
+fun max(x: int, y: int): int
+fun minMax(x: int, y: int): (int, int)
+fun abs(x: int): int
+fun sign(x: int): int                 // -1, 0, or 1
+
+fun divMod(x: int, y: int): (int, int)
+fun modDiv(x: int, y: int): (int, int)
+fun mulDivFloor(x: int, y: int, z: int): int   // floor(x*y/z), 513-bit intermediate
+fun mulDivRound(x: int, y: int, z: int): int   // round(x*y/z)
+fun mulDivCeil(x: int, y: int, z: int): int    // ceil(x*y/z)
+fun mulDivMod(x: int, y: int, z: int): (int, int)
+```
+
+---
+
+## Contract Storage
+
+```tolk
+struct contract   // built-in struct with static methods only
+
+fun contract.getAddress(): address               // address of this contract
+fun contract.getOriginalBalance(): coins         // balance at start of compute phase
+fun contract.getData(): cell                     // persistent storage cell (c4)
+fun contract.setData(c: cell): void              // update persistent storage
+fun contract.getCode(): cell                     // contract code cell
+fun contract.setCodePostponed(newCode: cell): void  // schedule code update
+
+fun commitContractDataAndActions(): void  // commit c4/c5 so partial success is saved
+```
+
+### Pattern: Load and Save Storage
+
+```tolk
+fun onInternalMessage(in: InMessage) {
+    var storage = MyStorage.fromCell(contract.getData());
+
+    storage.counter += 1;
+    storage.lastSender = in.senderAddress;
+
+    contract.setData(storage.toCell());
+}
+```
+
+---
+
+## Blockchain Context
+
+```tolk
+struct blockchain  // built-in struct with static methods only
+
+fun blockchain.now(): int                         // current Unix timestamp
+fun blockchain.logicalTime(): int                 // logical time of this transaction
+fun blockchain.currentBlockLogicalTime(): int     // starting LT of current block
+fun blockchain.configParam(x: int): cell?         // global config parameter
+
+const MASTERCHAIN = -1
+const BASECHAIN = 0
+```
+
+---
+
+## Serialisation
+
+```tolk
+// Serialise any struct to a cell
+fun T.toCell(self, options: PackOptions = {}): Cell<T>
+
+// Deserialise from a cell or slice
+fun T.fromCell(packedCell: cell, options: UnpackOptions = {}): T
+fun T.fromSlice(rawSlice: slice, options: UnpackOptions = {}): T
+
+// Slice mutation (shifts internal pointer)
+fun slice.loadAny<T>(mutate self, options: UnpackOptions = {}): T
+fun slice.skipAny<T>(mutate self, options: UnpackOptions = {}): self
+
+// Builder mutation
+fun builder.storeAny<T>(mutate self, v: T, options: PackOptions = {}): self
+
+// Typed cell lazy loading
+fun Cell<T>.load(self, options: UnpackOptions = {}): T
+fun Cell<T>.beginParse(self): slice
+fun Cell<T>.hash(self): uint256
+```
+
+---
+
+## Cell / Slice / Builder Operations
+
+### Creating and Finishing Cells
+
+```tolk
+fun beginCell(): builder
+fun createEmptyCell(): cell
+fun createEmptySlice(): slice
+fun builder.endCell(self): cell
+fun builder.toSlice(self): slice
+```
+
+### Reading from Slice
+
+```tolk
+fun cell.beginParse(self): slice
+fun slice.assertEnd(self): void
+
+fun slice.loadInt(mutate self, len: int): int
+fun slice.loadUint(mutate self, len: int): int
+fun slice.loadBits(mutate self, len: int): slice
+fun slice.loadCoins(mutate self): coins
+fun slice.loadBool(mutate self): bool
+fun slice.loadRef(mutate self): cell
+fun slice.loadMaybeRef(mutate self): cell?
+fun slice.loadDict(mutate self): dict
+fun slice.loadAddress(mutate self): address
+fun slice.loadAddressOpt(mutate self): address?
+fun slice.loadAddressAny(mutate self): any_address
+fun slice.loadString(mutate self): string
+
+// Peek without advancing
+fun slice.preloadInt(self, len: int): int
+fun slice.preloadUint(self, len: int): int
+fun slice.preloadBits(self, len: int): slice
+fun slice.preloadRef(self): cell
+fun slice.preloadMaybeRef(self): cell?
+fun slice.preloadDict(self): dict
+
+// Counting
+fun slice.remainingBitsCount(self): int
+fun slice.remainingRefsCount(self): int
+fun slice.isEmpty(self): bool
+fun slice.isEndOfBits(self): bool
+fun slice.isEndOfRefs(self): bool
+```
+
+### Writing to Builder
+
+```tolk
+fun builder.storeInt(mutate self, x: int, len: int): self
+fun builder.storeUint(mutate self, x: int, len: int): self
+fun builder.storeBits(mutate self, s: slice): self  // alias: storeSlice
+fun builder.storeCoins(mutate self, x: coins): self
+fun builder.storeBool(mutate self, x: bool): self
+fun builder.storeRef(mutate self, c: cell): self
+fun builder.storeMaybeRef(mutate self, c: cell?): self
+fun builder.storeDict(mutate self, c: dict): self
+fun builder.storeAddress(mutate self, addr: address): self
+fun builder.storeAddressOpt(mutate self, addrOrNull: address?): self
+fun builder.storeAddressAny(mutate self, addrAny: any_address): self
+fun builder.storeAddressNone(mutate self): self
+fun builder.storeString(mutate self, s: string): self
+fun builder.storeSlice(mutate self, s: slice): self
+fun builder.storeBuilder(mutate self, from: builder): self
+fun builder.bitsCount(self): int
+fun builder.refsCount(self): int
+```
+
+---
+
+## Hashing
+
+```tolk
+fun cell.hash(self): uint256
+fun slice.hash(self): uint256
+fun builder.hash(self): uint256
+fun slice.bitsHash(self): uint256   // sha256 of data bits (no refs)
+fun cell.hashEqual(self, another: cell): bool
+```
+
+---
+
+## Map Operations
+
+```tolk
+// Creation
+var m: map<int32, coins> = [];  // preferred empty-map syntax
+
+// Queries
+fun map<K, V>.isEmpty(self): bool
+fun map<K, V>.exists(self, key: K): bool
+fun map<K, V>.get(self, key: K): MapLookupResult<V>   // never throws
+fun map<K, V>.mustGet(self, key: K, throwIfNotFound: int = 9): V
+
+// Mutations
+fun map<K, V>.set(mutate self, key: K, value: V): self
+fun map<K, V>.setAndGetPrevious(mutate self, key: K, value: V): MapLookupResult<V>
+fun map<K, V>.replaceIfExists(mutate self, key: K, value: V): bool
+fun map<K, V>.addIfNotExists(mutate self, key: K, value: V): bool
+fun map<K, V>.delete(mutate self, key: K): bool
+fun map<K, V>.deleteAndGetDeleted(mutate self, key: K): MapLookupResult<V>
+
+// Traversal
+fun map<K, V>.findFirst(self): MapEntry<K, V>
+fun map<K, V>.findLast(self): MapEntry<K, V>
+fun map<K, V>.findKeyGreater(self, pivotKey: K): MapEntry<K, V>
+fun map<K, V>.findKeyGreaterOrEqual(self, pivotKey: K): MapEntry<K, V>
+fun map<K, V>.findKeyLess(self, pivotKey: K): MapEntry<K, V>
+fun map<K, V>.findKeyLessOrEqual(self, pivotKey: K): MapEntry<K, V>
+fun map<K, V>.iterateNext(self, current: MapEntry<K, V>): MapEntry<K, V>
+fun map<K, V>.iteratePrev(self, current: MapEntry<K, V>): MapEntry<K, V>
+```
+
+### Map Iteration Pattern
+
+```tolk
+var balances: map<address, coins> = contract.getData().beginParse().loadAny();
+
+var entry = balances.findFirst();
+while (entry.isFound) {
+    val addr = entry.getKey();
+    val balance = entry.loadValue();
+    // process addr / balance
+    entry = balances.iterateNext(entry);
+}
+```
+
+---
+
+## Array Operations
+
+```tolk
+fun array<T>.push(mutate self, value: T): void
+fun array<T>.pop(mutate self): T
+fun array<T>.get(self, index: int): T
+fun array<T>.set(mutate self, value: T, index: int): void
+fun array<T>.first(self): T
+fun array<T>.last(self): T
+fun array<T>.size(self): int
+```
+
+---
+
+## Address Utilities
+
+```tolk
+// Compile-time address literal
+fun address(stdAddress: string): address   // address("EQ...")
+
+fun address.getWorkchain(self): int8
+fun address.getWorkchainAndHash(self): (int8, uint256)
+fun address.fromWorkchainAndHash(workchain: int8, hash: uint256): address
+fun address.calculateSameAddressInAnotherShard(self, options: AddressShardingOptions): address
+
+fun any_address.isNone(self): bool
+fun any_address.isInternal(self): bool
+fun any_address.isExternal(self): bool
+fun any_address.castToInternal(self): address
+fun createAddressNone(): any_address
+```
+
+---
+
+## Message Creation
+
+```tolk
+fun createMessage<TBody>(options: CreateMessageOptions<TBody>): OutMessage
+fun createExternalLogMessage<TBody>(options: CreateExternalLogMessageOptions<TBody>): OutMessage
+
+fun OutMessage.send(self, sendMode: int): void
+fun OutMessage.sendAndEstimateFee(self, sendMode: int): coins
+fun OutMessage.estimateFeeWithoutSending(self, sendMode: int): coins
+fun OutMessage.hash(self): uint256
+
+// Send mode constants
+const SEND_MODE_REGULAR = 0
+const SEND_MODE_PAY_FEES_SEPARATELY = 1
+const SEND_MODE_IGNORE_ERRORS = 2
+const SEND_MODE_BOUNCE_ON_ACTION_FAIL = 16
+const SEND_MODE_DESTROY = 32
+const SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE = 64
+const SEND_MODE_CARRY_ALL_BALANCE = 128
+```
+
+### createMessage Example
+
+```tolk
+val reply = createMessage({
+    bounce: BounceMode.NoBounce,
+    value: ton("0.05"),
+    dest: in.senderAddress,
+    body: ResponseData { queryId: 42, result: 100 },
+});
+reply.send(SEND_MODE_REGULAR);
+```
+
+---
+
+## Signature Verification
+
+```tolk
+fun isSignatureValid(hash: uint256, signature: slice, publicKey: uint256): bool
+fun isSliceSignatureValid(data: slice, signature: slice, publicKey: int): bool
+```
+
+---
+
+## Reserve Actions
+
+```tolk
+fun reserveToncoinsOnBalance(nanoTonCoins: coins, reserveMode: int): void
+
+const RESERVE_MODE_EXACT_AMOUNT = 0
+const RESERVE_MODE_ALL_BUT_AMOUNT = 1
+const RESERVE_MODE_AT_MOST = 2
+const RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE = 4
+const RESERVE_MODE_NEGATE_AMOUNT = 8
+const RESERVE_MODE_BOUNCE_ON_ACTION_FAIL = 16
+```
+
+---
+
+## Debugging
+
+```tolk
+struct debug
+
+fun debug.print<T>(x: T): void          // dump to debug log as raw TVM value
+fun debug.printString(x: string): void  // dump string to debug log
+fun debug.dumpStack(): void             // dump top 255 stack values
+```

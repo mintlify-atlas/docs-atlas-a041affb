@@ -1,0 +1,75 @@
+---
+title: "Tolk Standard Library — Built-in Language Modules"
+sidebarTitle: "Overview"
+description: "Overview of Tolk's built-in stdlib modules — common, tvm-dicts, strings, gas-payments, and more — compiled into every TON contract."
+---
+
+Every Tolk contract has access to a set of built-in standard library modules that are bundled with the Tolk compiler itself. These modules are distinct from the [Acton standard library](/stdlib/overview): the Acton stdlib provides host-side helpers for testing and scripting, while the Tolk stdlib provides the foundational language primitives that execute directly inside the TVM — cell manipulation, dictionary operations, string utilities, gas management, and low-level TVM access.
+
+The Tolk stdlib is located in the Acton binary under `crates/tolk-compiler/assets/tolk-stdlib/` and is automatically available without any configuration. Most modules are implicitly imported; a few specialised ones (`tvm-dicts`, `strings`, `gas-payments`, etc.) must be explicitly imported with `import "@stdlib/<name>"`.
+
+<Note>
+The Tolk stdlib is **on-chain code** — it compiles to TVM instructions. Every function you call from it consumes gas. The Acton stdlib (`@acton/`) is **host-side** and does not run inside TVM.
+</Note>
+
+## Modules
+
+<CardGroup cols={2}>
+  <Card title="common" href="/tolk-stdlib/common">
+    Primitive types, cell/slice/builder operations, map and array methods, contract storage, message creation, address utilities, and send-mode constants. This module is auto-imported into every Tolk file.
+  </Card>
+  <Card title="tvm-dicts" href="/tolk-stdlib/tvm-dicts">
+    Low-level TVM dictionary operations for signed-integer, unsigned-integer, and slice-key dictionaries — get, set, delete, iteration, and more.
+  </Card>
+  <Card title="strings" href="/tolk-stdlib/strings">
+    Runtime string utilities — length calculation, content hashing, equality comparison, integer-to-string conversion, and the `StringBuilder` type.
+  </Card>
+  <Card title="gas-payments" href="/tolk-stdlib/gas-payments">
+    Gas and fee utilities — `acceptExternalMessage`, `setGasLimit`, gas fee calculation, storage fee calculation, and forward fee calculation.
+  </Card>
+  <Card title="exotic-cells" href="/tolk-stdlib/overview">
+    Helpers for working with Merkle-proof and Merkle-update cells, and other exotic cell types.
+  </Card>
+  <Card title="lisp-lists" href="/tolk-stdlib/overview">
+    Methods for the `lisp_list<T>` type — prepend, get head, and traverse linked-list structures longer than 255 elements.
+  </Card>
+  <Card title="reflection" href="/tolk-stdlib/overview">
+    Compile-time reflection utilities — `reflect.sourceLocationAsString()` and related helpers used internally by `expect` and `Assert` for automatic location tracking.
+  </Card>
+  <Card title="tvm-lowlevel" href="/tolk-stdlib/overview">
+    Raw TVM instruction wrappers for advanced use cases that are not covered by the high-level stdlib surface.
+  </Card>
+</CardGroup>
+
+## Distinction from Acton Stdlib
+
+| | Tolk stdlib (`@stdlib/`) | Acton stdlib (`@acton/`) |
+|---|---|---|
+| **Where it runs** | Inside TVM on-chain | Acton host process |
+| **Available in** | `contracts/`, wrappers | `tests/`, `scripts/` |
+| **Consumes gas** | Yes | No |
+| **Purpose** | Language primitives, TVM operations | Testing, emulation, deployment |
+| **Auto-imported** | `common` module | Never |
+
+## Example: Using Tolk Stdlib in a Contract
+
+```tolk
+// `common` is auto-imported — no explicit import needed
+
+fun onInternalMessage(in: InMessage) {
+    var storage = MyStorage.fromCell(contract.getData());
+
+    // map operations from common
+    storage.balances.set(in.senderAddress, ton("1.0"));
+
+    // string formatting from @stdlib/strings
+    import "@stdlib/strings"
+    val label = int.toDecimalString(storage.count);
+
+    // gas operations from @stdlib/gas-payments
+    import "@stdlib/gas-payments"
+    val fee = calculateGasFee(BASECHAIN, getGasConsumedAtTheMoment());
+
+    contract.setData(storage.toCell());
+}
+```

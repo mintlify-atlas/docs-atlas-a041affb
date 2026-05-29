@@ -1,0 +1,119 @@
+---
+title: "acton up — install and update Acton CLI"
+sidebarTitle: "up"
+description: "Download and install any Acton CLI release — latest stable, a pinned version, or the bleeding-edge trunk build — with checksum verification."
+---
+
+`acton up` downloads and installs Acton CLI releases from GitHub. It fetches the release archive matching your current platform, verifies the SHA256 checksum, and replaces the running binary in place. By default, stable builds update to the latest stable release and trunk builds stay on the trunk channel — but you can switch channels, pin to a specific version, or list all available releases at any time.
+
+## Synopsis
+
+```bash
+acton up [VERSION] [OPTIONS]
+```
+
+## Options
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `VERSION` | string | — | Specific version tag to install (e.g. `1.2.0`) |
+| `--trunk` | flag | — | Install the most recent trunk (bleeding-edge) release |
+| `--stable` | flag | — | Install the latest stable release |
+| `--force` | flag | — | Reinstall even if already up to date |
+| `--list` | flag | — | List available release tags and exit (read-only) |
+
+<Note>
+  `VERSION`, `--trunk`, `--stable`, and `--list` are mutually exclusive. Use exactly one at a time.
+</Note>
+
+## Channel selection
+
+Acton tracks which channel you are on and defaults to the appropriate update behaviour:
+
+| Current build | Command | Result |
+|---|---|---|
+| Stable | `acton up` | Update to latest stable |
+| Trunk | `acton up` | Update to latest trunk |
+| Either | `acton up --stable` | Switch to / update latest stable |
+| Either | `acton up --trunk` | Switch to / install latest trunk |
+| Either | `acton up 1.2.0` | Install that exact version regardless of channel |
+
+## Trunk builds
+
+<Warning>
+  Trunk builds are the bleeding-edge development channel. They receive features and fixes before the stable release, but may contain regressions or breaking changes. Use trunk for early access and testing; prefer stable for production projects.
+</Warning>
+
+Trunk builds are released continuously from the main branch. They are suitable for:
+- Testing upcoming features before the stable release
+- Reporting bugs against the latest development state
+- Contributors who need the freshest toolchain
+
+## Installation flow
+
+When installing a release, `acton up`:
+
+1. Fetches release metadata from `ton-blockchain/acton` on GitHub
+2. Selects the archive matching your current target triple (OS + architecture)
+3. Downloads the archive and its `.sha256` checksum file
+4. Verifies the SHA256 digest — aborts if verification fails
+5. Unpacks the archive and replaces the current `acton` binary
+
+If `GITHUB_TOKEN` is set in the environment, Acton uses it for authenticated GitHub API requests (higher rate limits).
+
+`--list` is read-only and performs no download or replacement.
+
+## Pinning a version in Acton.toml
+
+Projects can pin the required Acton CLI version in `Acton.toml`. When a version mismatch is detected, Acton prints an error with the install command:
+
+```toml title="Acton.toml"
+[toolchain]
+acton = "1.2.0"
+```
+
+Install the pinned version from the project root:
+
+```bash
+acton up 1.2.0
+```
+
+## Examples
+
+<CodeGroup>
+
+```bash Update to the latest stable release
+acton up
+```
+
+```bash Update to the latest stable release explicitly
+acton up --stable
+```
+
+```bash Switch to the trunk channel
+acton up --trunk
+```
+
+```bash Install a specific version
+acton up 1.2.0
+```
+
+```bash Reinstall the current channel version
+acton up --force
+```
+
+```bash List all available release tags
+acton up --list
+```
+
+</CodeGroup>
+
+## Exit status
+
+- `0` — release information was listed, Acton was already up to date, or the selected version was installed successfully
+- `1` — release lookup failed, checksum verification failed, or binary replacement failed
+
+## See Also
+
+- [Installation guide](/installation)
+- `acton doctor` (see [Command Reference](/commands/overview)) — inspect the resolved project and toolchain setup

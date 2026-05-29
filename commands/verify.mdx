@@ -1,0 +1,142 @@
+---
+title: "acton verify — TON Verifier source verification"
+sidebarTitle: "verify"
+description: "Submit your Tolk contract source to TON Verifier so anyone can confirm the deployed bytecode matches the published source code."
+---
+
+`acton verify` publishes your Tolk contract source code to the TON Verifier service, creating a permanent public link between a deployed contract address and its human-readable source. Once verified, any blockchain explorer that integrates TON Verifier will show a verified badge and the full source alongside the contract. The command handles the entire flow: compiling locally, uploading sources to the verifier backend, collecting the required signatures, and optionally submitting the final on-chain verification transaction.
+
+## Synopsis
+
+```bash
+acton verify [CONTRACT_NAME] [OPTIONS]
+```
+
+## Options
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `CONTRACT_NAME` | string | prompted | Contract name from `Acton.toml` to verify |
+| `--address` | string | prompted | Deployed contract address to verify against |
+| `--net` | string | `testnet` | Network: `testnet` or `mainnet` |
+| `--wallet` | string | auto-selected | Wallet from `wallets.toml` to pay the verification transaction |
+| `--compiler-version` | string | current default | Tolk compiler version to request on the verifier side |
+| `--dry-run` | flag | — | Run the full flow without submitting the final blockchain transaction |
+| `--tonconnect` | flag | — | Use a TON Connect wallet instead of a local wallet |
+| `--tonconnect-port` | number | `52258` | Local port for the TON Connect approval page |
+
+## Verification process
+
+Verification follows these steps automatically:
+
+1. **Compile** — Acton compiles the local contract source with the configured Tolk version
+2. **Upload** — source files and compiler metadata are uploaded to the verifier backend
+3. **Sign** — the verifier collects the required number of backend signatures
+4. **Transact** — a small on-chain transaction (`0.1 TON`) is sent to register the verification
+5. **Confirm** — Acton prints a verifier link for the contract on success
+
+`--dry-run` performs steps 1–3 but skips step 4. It is useful for validating that sources upload and signatures are collected without spending funds.
+
+<Note>
+  If the verifier backend reports that the contract is already verified, Acton exits successfully without sending another transaction — you will not be double-charged.
+</Note>
+
+## Prerequisites
+
+Before running `acton verify`:
+
+- The contract must be a `.tolk` source defined in `Acton.toml` — precompiled `.boc` contracts cannot be verified
+- The contract must already be deployed at the provided address
+- A funded wallet must be configured (or use `--tonconnect`), unless running with `--dry-run`
+- The network must be `testnet` or `mainnet` — `localnet` and custom networks are not supported by verifier backends
+- The local source must produce the same compiled code hash as the deployed contract
+
+## Contract and wallet selection
+
+- If `CONTRACT_NAME` is omitted and the project has exactly one contract, Acton selects it automatically
+- If multiple contracts exist, Acton prompts interactively
+- If `--wallet` is omitted and exactly one wallet is configured, Acton auto-selects it
+- `--tonconnect` and `--wallet` are mutually exclusive
+
+## TonCenter API keys
+
+Built-in `mainnet`/`testnet` requests read `TONCENTER_MAINNET_API_KEY` or `TONCENTER_TESTNET_API_KEY` from the environment. Acton loads `.env` automatically — set the key there for project work and use shell environment variables for CI.
+
+## TON Connect
+
+Use `--tonconnect` when you want to approve the verification transaction through a browser wallet (Tonkeeper, MyTonWallet, etc.) rather than a locally stored mnemonic:
+
+```bash
+acton verify Counter --address EQDt7LL... --net mainnet --tonconnect
+```
+
+Acton opens a local TON Connect approval page in your browser. Use `--tonconnect-port` if the default port `52258` is already in use.
+
+## Environment overrides (advanced)
+
+For debugging or testing against custom backends, three environment variables are available:
+
+| Variable | Effect |
+|---|---|
+| `ACTON_VERIFY_BACKEND` | Override the source-upload `/source` backend URL |
+| `ACTON_VERIFY_BACKENDS` | Replace the signer `/sign` backend list (comma-separated) |
+| `ACTON_VERIFY_DEBUG` | Enable verbose verification diagnostics when set to any value |
+
+```bash
+ACTON_VERIFY_BACKEND=http://127.0.0.1:8080 \
+ACTON_VERIFY_DEBUG=1 \
+acton verify Counter --address EQDt7LL... --net mainnet --dry-run
+```
+
+## Error handling and retries
+
+Source upload is retried up to 8 times total for transient transport failures and 5xx backend responses. Retry backoff grows from 1 second to 7 seconds between attempts. If the backend consistently fails, try adding `ACTON_VERIFY_DEBUG=1` to see detailed request/response information.
+
+## Examples
+
+<CodeGroup>
+
+```bash Verify on testnet
+acton verify Counter --address EQDt7LL...
+```
+
+```bash Verify on mainnet
+acton verify Counter --address UQDt7LL... --net mainnet
+```
+
+```bash Use a specific wallet
+acton verify Counter --address EQDt7LL... --wallet deployer
+```
+
+```bash Dry run — validate without sending transaction
+acton verify Counter --address EQDt7LL... --dry-run
+```
+
+```bash Verify with an explicit compiler version
+acton verify Counter --address EQDt7LL... --compiler-version 1.2.0
+```
+
+```bash Verify on mainnet with TON Connect
+acton verify Counter --address UQDt7LL... --net mainnet --tonconnect
+```
+
+</CodeGroup>
+
+## Viewing verified contracts
+
+After successful verification, Acton prints a verifier link. Verified contracts appear with a source badge on explorers that integrate TON Verifier:
+
+- [TON Verifier](https://verifier.ton.org) — canonical verifier UI
+- [Tonviewer](https://tonviewer.com) — shows source tab for verified contracts
+- [Tonscan](https://tonscan.org) — displays verification status
+
+## Exit status
+
+- `0` — verification completed successfully (including dry runs and already-verified contracts)
+- `1` — compilation failed, verifier backend rejected the request, signature collection failed, wallet resolution failed, or the final transaction could not be sent
+
+## See Also
+
+- [Contract verification guide](/guides/verify)
+- [`acton wallet`](/commands/wallet) — configure a wallet for the verification transaction
+- [`acton build`](/commands/build) — build contracts before verifying

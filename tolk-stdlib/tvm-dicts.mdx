@@ -1,0 +1,230 @@
+---
+title: "Tolk TVM Dicts Module — Low-Level Dictionary Operations"
+sidebarTitle: "TVM Dicts"
+description: "Reference for @stdlib/tvm-dicts — low-level TVM dictionary get, set, delete, and iteration with signed-int, unsigned-int, and slice keys."
+---
+
+The `tvm-dicts` module exposes the raw TVM dictionary instruction set as Tolk methods on the `dict` type. Unlike the high-level `map<K, V>` type from `common`, which handles key serialisation and value deserialisation automatically, `tvm-dicts` gives you direct control over key widths, raw slice values, and cell references. It is most useful when you need to interact with dictionary formats defined by external protocols, perform custom serialisation, or squeeze out the last gas savings in hot paths.
+
+<Note>
+Prefer `map<K, V>` for new code. Use `tvm-dicts` only when you need direct TVM instruction access or are interoperating with existing on-chain data formats that use raw `dict` operations.
+</Note>
+
+## Import
+
+```tolk
+import "@stdlib/tvm-dicts"
+```
+
+## Key Prefixes
+
+All function names follow a consistent three-prefix naming scheme:
+
+| Prefix | Key type | Example |
+|--------|----------|---------|
+| `i` | Signed integer (`int`) | `iDictGet` |
+| `u` | Unsigned integer (`int`) | `uDictGet` |
+| `s` | Slice | `sDictGet` |
+
+## Creating an Empty Dictionary
+
+```tolk
+fun createEmptyDict(): dict
+fun dict.dictIsEmpty(self): bool
+```
+
+```tolk
+var d: dict = createEmptyDict();
+Assert.equal(d.dictIsEmpty(), true);
+```
+
+---
+
+## Get Operations
+
+```tolk
+// Returns (value_slice, found_flag)
+fun dict.iDictGet(self, keyLen: int, key: int): (slice?, bool)
+fun dict.uDictGet(self, keyLen: int, key: int): (slice?, bool)
+fun dict.sDictGet(self, keyLen: int, key: slice): (slice?, bool)
+
+// Returns (cell_ref, found_flag) — value was stored as a cell reference
+fun dict.iDictGetRef(self, keyLen: int, key: int): (cell?, bool)
+fun dict.uDictGetRef(self, keyLen: int, key: int): (cell?, bool)
+fun dict.sDictGetRef(self, keyLen: int, key: slice): (cell?, bool)
+
+// Quiet variants — return null instead of (null, false)
+fun dict.iDictGetRefOrNull(self, keyLen: int, key: int): cell?
+fun dict.uDictGetRefOrNull(self, keyLen: int, key: int): cell?
+fun dict.sDictGetRefOrNull(self, keyLen: int, key: slice): cell?
+```
+
+### Get Example
+
+```tolk
+import "@stdlib/tvm-dicts"
+
+val (valueSlice, found) = myDict.uDictGet(32, userKey);
+if (found) {
+    val balance = valueSlice!.loadCoins();
+}
+```
+
+---
+
+## Set Operations
+
+```tolk
+// Unconditional set — always overwrites
+fun dict.iDictSet(mutate self, keyLen: int, key: int, value: slice): void
+fun dict.uDictSet(mutate self, keyLen: int, key: int, value: slice): void
+fun dict.sDictSet(mutate self, keyLen: int, key: slice, value: slice): void
+
+// Set a cell reference
+fun dict.iDictSetRef(mutate self, keyLen: int, key: int, value: cell): void
+fun dict.uDictSetRef(mutate self, keyLen: int, key: int, value: cell): void
+fun dict.sDictSetRef(mutate self, keyLen: int, key: slice, value: cell): void
+
+// Set using a builder value (avoids creating an intermediate cell)
+fun dict.iDictSetBuilder(mutate self, keyLen: int, key: int, value: builder): void
+fun dict.uDictSetBuilder(mutate self, keyLen: int, key: int, value: builder): void
+fun dict.sDictSetBuilder(mutate self, keyLen: int, key: slice, value: builder): void
+
+// Conditional set — only if key does not exist yet; returns success flag
+fun dict.iDictSetIfNotExists(mutate self, keyLen: int, key: int, value: slice): bool
+fun dict.uDictSetIfNotExists(mutate self, keyLen: int, key: int, value: slice): bool
+fun dict.iDictSetBuilderIfNotExists(mutate self, keyLen: int, key: int, value: builder): bool
+fun dict.uDictSetBuilderIfNotExists(mutate self, keyLen: int, key: int, value: builder): bool
+
+// Conditional set — only if key exists; returns success flag
+fun dict.iDictSetIfExists(mutate self, keyLen: int, key: int, value: slice): bool
+fun dict.uDictSetIfExists(mutate self, keyLen: int, key: int, value: slice): bool
+fun dict.iDictSetBuilderIfExists(mutate self, keyLen: int, key: int, value: builder): bool
+fun dict.uDictSetBuilderIfExists(mutate self, keyLen: int, key: int, value: builder): bool
+```
+
+### Set and Get Previous
+
+```tolk
+// Set and return the old value (atomic swap)
+fun dict.iDictSetAndGet(mutate self, keyLen: int, key: int, value: slice): (slice?, bool)
+fun dict.uDictSetAndGet(mutate self, keyLen: int, key: int, value: slice): (slice?, bool)
+fun dict.sDictSetAndGet(mutate self, keyLen: int, key: slice, value: slice): (slice?, bool)
+
+// Set-ref and return old ref
+fun dict.iDictSetAndGetRefOrNull(mutate self, keyLen: int, key: int, value: cell): cell?
+fun dict.uDictSetAndGetRefOrNull(mutate self, keyLen: int, key: int, value: cell): cell?
+```
+
+---
+
+## Delete Operations
+
+```tolk
+// Delete by key — returns whether a value was deleted
+fun dict.iDictDelete(mutate self, keyLen: int, key: int): bool
+fun dict.uDictDelete(mutate self, keyLen: int, key: int): bool
+fun dict.sDictDelete(mutate self, keyLen: int, key: slice): bool
+
+// Delete and return the deleted value
+fun dict.iDictDeleteAndGet(mutate self, keyLen: int, key: int): (slice?, bool)
+fun dict.uDictDeleteAndGet(mutate self, keyLen: int, key: int): (slice?, bool)
+fun dict.sDictDeleteAndGet(mutate self, keyLen: int, key: slice): (slice?, bool)
+
+// Delete min/max key and return the key+value
+fun dict.iDictDeleteFirstAndGet(mutate self, keyLen: int): (int?, slice?, bool)
+fun dict.uDictDeleteFirstAndGet(mutate self, keyLen: int): (int?, slice?, bool)
+fun dict.sDictDeleteFirstAndGet(mutate self, keyLen: int): (slice?, slice?, bool)
+fun dict.iDictDeleteLastAndGet(mutate self, keyLen: int): (int?, slice?, bool)
+fun dict.uDictDeleteLastAndGet(mutate self, keyLen: int): (int?, slice?, bool)
+fun dict.sDictDeleteLastAndGet(mutate self, keyLen: int): (slice?, slice?, bool)
+```
+
+---
+
+## Traversal / Iteration
+
+### Find First and Last
+
+```tolk
+fun dict.iDictGetFirst(self, keyLen: int): (int?, slice?, bool)
+fun dict.uDictGetFirst(self, keyLen: int): (int?, slice?, bool)
+fun dict.sDictGetFirst(self, keyLen: int): (slice?, slice?, bool)
+
+fun dict.iDictGetFirstAsRef(self, keyLen: int): (int?, cell?, bool)
+fun dict.uDictGetFirstAsRef(self, keyLen: int): (int?, cell?, bool)
+fun dict.sDictGetFirstAsRef(self, keyLen: int): (slice?, cell?, bool)
+
+fun dict.iDictGetLast(self, keyLen: int): (int?, slice?, bool)
+fun dict.uDictGetLast(self, keyLen: int): (int?, slice?, bool)
+fun dict.sDictGetLast(self, keyLen: int): (slice?, slice?, bool)
+
+fun dict.iDictGetLastAsRef(self, keyLen: int): (int?, cell?, bool)
+fun dict.uDictGetLastAsRef(self, keyLen: int): (int?, cell?, bool)
+fun dict.sDictGetLastAsRef(self, keyLen: int): (slice?, cell?, bool)
+```
+
+### Neighbour Traversal (Next / Prev)
+
+```tolk
+// Key strictly greater than pivot
+fun dict.iDictGetNext(self, keyLen: int, pivot: int): (int?, slice?, bool)
+fun dict.uDictGetNext(self, keyLen: int, pivot: int): (int?, slice?, bool)
+fun dict.sDictGetNext(self, keyLen: int, pivot: slice): (slice?, slice?, bool)
+
+// Key >= pivot
+fun dict.iDictGetNextOrEqual(self, keyLen: int, pivot: int): (int?, slice?, bool)
+fun dict.uDictGetNextOrEqual(self, keyLen: int, pivot: int): (int?, slice?, bool)
+fun dict.sDictGetNextOrEqual(self, keyLen: int, pivot: slice): (slice?, slice?, bool)
+
+// Key strictly less than pivot
+fun dict.iDictGetPrev(self, keyLen: int, pivot: int): (int?, slice?, bool)
+fun dict.uDictGetPrev(self, keyLen: int, pivot: int): (int?, slice?, bool)
+fun dict.sDictGetPrev(self, keyLen: int, pivot: slice): (slice?, slice?, bool)
+
+// Key <= pivot
+fun dict.iDictGetPrevOrEqual(self, keyLen: int, pivot: int): (int?, slice?, bool)
+fun dict.uDictGetPrevOrEqual(self, keyLen: int, pivot: int): (int?, slice?, bool)
+fun dict.sDictGetPrevOrEqual(self, keyLen: int, pivot: slice): (slice?, slice?, bool)
+```
+
+### Full Ascending Iteration Pattern
+
+```tolk
+import "@stdlib/tvm-dicts"
+
+fun iterateAllBalances(balancesDict: dict) {
+    var (key, valueSlice, found) = balancesDict.uDictGetFirst(256);
+    while (found) {
+        val balance = valueSlice!.loadCoins();
+        // process key / balance
+        (key, valueSlice, found) = balancesDict.uDictGetNext(256, key!);
+    }
+}
+```
+
+---
+
+## Prefix Dictionary Operations
+
+```tolk
+fun dict.prefixDictGet(self, keyLen: int, key: slice): (slice, slice?, slice?, bool)
+fun dict.prefixDictSet(mutate self, keyLen: int, key: slice, value: slice): bool
+fun dict.prefixDictDelete(mutate self, keyLen: int, key: slice): bool
+```
+
+Prefix dictionaries are used for compact routing tables (e.g., Catchain and custom routing).
+
+---
+
+## Low-Level Conversion
+
+The high-level `map<K, V>` can be bridged to `dict` for low-level access:
+
+```tolk
+// map<K,V> → dict (no data conversion, just type reinterpretation)
+fun map<K, V>.toLowLevelDict(self): dict
+
+// dict → map<K,V> (caller is responsible for correctness)
+fun createMapFromLowLevelDict<K, V>(d: dict): map<K, V>
+```

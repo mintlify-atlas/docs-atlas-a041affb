@@ -1,0 +1,214 @@
+---
+title: "Getting Started with the Acton Local Development Node"
+sidebarTitle: "Getting Started"
+description: "Start and stop the local TON node, use the built-in faucet, configure startup accounts, and verify the API is live on localhost:3010."
+---
+
+The `acton localnet` command group gives you a full local TON node that starts in seconds and requires no external accounts or tokens. Within a few commands you can have a running node, funded wallets, and a working TonCenter-compatible API endpoint at `http://127.0.0.1:<port>` — ready for deploys, transactions, and explorer browsing without touching testnet or mainnet.
+
+## Starting the node
+
+Run the following command from any directory that contains an `Acton.toml`, or from a bare directory to start a standalone node with no project configuration:
+
+```bash
+acton localnet start
+```
+
+By default the node listens on port **5411**, or on whatever port is set in `[localnet].port` inside `Acton.toml`. Pass `--port` to override it for the current run:
+
+```bash
+acton localnet start --port 3010
+```
+
+When the server is ready you will see output similar to:
+
+```
+   Started localnet on http://127.0.0.1:3010
+   Explorer: http://127.0.0.1:3010/explorer
+```
+
+<Tip>
+  Open `http://127.0.0.1:<port>/explorer` in a browser to use the bundled block explorer. It reads from the same API server and requires no separate setup.
+</Tip>
+
+## Verifying the API is up
+
+Use `curl` to call the `getMasterchainInfo` endpoint, which returns the current chain head:
+
+```bash
+curl -s "http://127.0.0.1:3010/api/v2/getMasterchainInfo"
+```
+
+A successful response looks like:
+
+```json
+{
+  "ok": true,
+  "result": {
+    "last": {
+      "workchain": -1,
+      "shard": "-9223372036854775808",
+      "seqno": 1,
+      "root_hash": "...",
+      "file_hash": "..."
+    },
+    "state_root_hash": "...",
+    "init": {
+      "workchain": -1,
+      "shard": "-9223372036854775808",
+      "seqno": 0,
+      "root_hash": "...",
+      "file_hash": "..."
+    }
+  }
+}
+```
+
+You can also poll the control endpoint for uptime and state-source details:
+
+```bash
+curl -s "http://127.0.0.1:3010/acton_nodeInfo"
+```
+
+## Checking node status
+
+Use `acton localnet status` to check whether a local node is currently running on a given port and retrieve its uptime:
+
+```bash
+acton localnet status
+acton localnet status --port 3010
+```
+
+## Requesting funds from the faucet
+
+The built-in faucet credits any address with local TON instantly. Use `acton localnet airdrop` (also available as `acton localnet faucet` in some builds) and pass the target address:
+
+```bash
+acton localnet airdrop UQA_ftKIJsHEAE_UgtFOUK15hPzycZooFuUr8duyY9T3kwwM
+```
+
+The default top-up amount is **100 TON**. Set a custom amount with `--amount`:
+
+```bash
+acton localnet airdrop UQA_ftKIJsHEAE_UgtFOUK15hPzycZooFuUr8duyY9T3kwwM --amount 250
+```
+
+If you started the node on a custom port, pass `--port` to the airdrop command as well:
+
+```bash
+acton localnet airdrop UQA_ftKIJsHEAE_UgtFOUK15hPzycZooFuUr8duyY9T3kwwM \
+  --amount 50 \
+  --port 3010
+```
+
+Under the hood, `acton localnet airdrop` calls `POST /acton_fundAccount` with the address and amount in nanotons. You can also call it directly with `curl`:
+
+```bash
+curl -s -X POST "http://127.0.0.1:3010/acton_fundAccount" \
+  -H "Content-Type: application/json" \
+  -d '{"address": "UQA_ftKIJsHEAE_UgtFOUK15hPzycZooFuUr8duyY9T3kwwM", "amount": 50000000000}'
+```
+
+After funding, verify the balance via the TonCenter v2 endpoint:
+
+```bash
+curl -s "http://127.0.0.1:3010/api/v2/getAddressBalance?address=UQA_ftKIJsHEAE_UgtFOUK15hPzycZooFuUr8duyY9T3kwwM"
+```
+
+## Startup accounts
+
+Instead of manually running `airdrop` every time you start the node, you can declare a list of named wallets in `Acton.toml` under `[localnet].accounts`. The node will automatically fund each wallet and — if it is not yet deployed — send a deploy transaction on startup.
+
+```toml
+[localnet]
+accounts = ["deployer", "user"]
+```
+
+Each wallet name must be present in your wallet configuration (typically `wallets.toml` or a `[wallets]` section in `Acton.toml`):
+
+```toml
+[wallets.deployer]
+kind = "v5r1"
+workchain = 0
+keys = { mnemonic-env = "DEPLOYER_MNEMONIC" }
+
+[wallets.user]
+kind = "v5r1"
+workchain = 0
+keys = { mnemonic-env = "USER_MNEMONIC" }
+```
+
+You can also pass the wallet list as a comma-separated CLI flag, which overrides `Acton.toml` for that run:
+
+```bash
+acton localnet start --accounts deployer,user --port 3010
+```
+
+<Warning>
+  If a wallet name listed in `accounts` cannot be resolved — because the wallet is missing from configuration or its mnemonic environment variable is unset — the node will fail during the startup bootstrap step before serving any requests.
+</Warning>
+
+## A complete local workflow
+
+The following end-to-end example starts a node, funds two addresses, submits a raw transaction, and queries the result:
+
+<Steps>
+  <Step title="Start the local node">
+    ```bash
+    acton localnet start --port 3010
+    ```
+  </Step>
+
+  <Step title="Verify the chain is live">
+    ```bash
+    curl -s "http://127.0.0.1:3010/api/v2/getMasterchainInfo" | jq .result.last.seqno
+    ```
+  </Step>
+
+  <Step title="Fund a deployer wallet">
+    ```bash
+    acton localnet airdrop EQBIhPuWmjT7fP-VomuTWseE8JNWv2q7QYfsVQ1IZwnMk8wL \
+      --amount 100 \
+      --port 3010
+    ```
+  </Step>
+
+  <Step title="Deploy a contract by sending a signed BOC">
+    ```bash
+    curl -s -X POST "http://127.0.0.1:3010/api/v2/sendBoc" \
+      -H "Content-Type: application/json" \
+      -d '{"boc": "<base64-encoded-external-in-message>"}'
+    ```
+  </Step>
+
+  <Step title="Query contract state">
+    ```bash
+    curl -s -X POST "http://127.0.0.1:3010/api/v2/runGetMethod" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "address": "EQBIhPuWmjT7fP-VomuTWseE8JNWv2q7QYfsVQ1IZwnMk8wL",
+        "method": "get_data",
+        "stack": []
+      }'
+    ```
+  </Step>
+</Steps>
+
+## Stopping the node
+
+Press **Ctrl+C** in the terminal where `acton localnet start` is running. If you started the node with `--dump-state`, the snapshot is written to disk during graceful shutdown before the process exits.
+
+<Note>
+  By default the node runs in **in-memory mode** — all chain state is lost when the process stops. Use `--db-path` for SQLite persistence or `--dump-state` / `--load-state` for portable JSON snapshots. See [Persistence & Snapshots](/guides/localnet/persistence) for details.
+</Note>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Forking from Testnet / Mainnet" href="/guides/localnet/forking" icon="code-branch">
+    Use real contract state locally without spending TON.
+  </Card>
+  <Card title="Persistence & Snapshots" href="/guides/localnet/persistence" icon="database">
+    Keep your local chain state across restarts or share it with your team.
+  </Card>
+</CardGroup>

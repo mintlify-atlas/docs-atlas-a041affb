@@ -1,0 +1,145 @@
+---
+title: "acton init — add Acton to an existing TON project"
+sidebarTitle: "init"
+description: "Initialize Acton in an existing directory with acton init. Covers --create-dapp, --stdlib-only, contract auto-discovery, and idempotent re-runs."
+---
+
+`acton init` adds Acton support to the current working directory without
+creating a new project folder. It is the right command when you already have a
+repository and want to layer in `Acton.toml`, the bundled standard library,
+standard ignore patterns, and symlinks to global wallet and library overlays.
+The command is safe to re-run at any time — it never overwrites an existing
+`Acton.toml` and only appends missing entries to `.gitignore`.
+
+## Synopsis
+
+```bash
+acton init [OPTIONS]
+```
+
+## Options
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--create-dapp [PATH]` | path | `app` | Skip project initialization and only create a Vite-based TypeScript app scaffold at `PATH`. The target directory must not exist. Conflicts with `--stdlib-only`. |
+| `--stdlib-only` | flag | false | Re-extract the bundled standard library into `.acton/` without touching `Acton.toml`, `.gitignore`, or symlinks. Always refreshes even if the stored version already matches. Conflicts with `--create-dapp`. |
+| `--color <WHEN>` | `auto` \| `always` \| `never` | `auto` | Control coloured output. |
+| `--manifest-path <PATH>` | path | — | Accepted for CLI consistency; `acton init` does not require an existing manifest. Conflicts with `--project-root`. |
+| `--project-root <PATH>` | path | — | Accepted for CLI consistency; `acton init` does not require an existing project root. Conflicts with `--manifest-path`. |
+
+---
+
+## Use cases
+
+<Tabs>
+  <Tab title="Add Acton to an existing repo">
+    Run `acton init` inside any directory that contains `.tolk` files. Acton
+    scans the tree for files that define `onInternalMessage`, registers them as
+    contracts in a freshly created `Acton.toml`, and installs the standard
+    library.
+
+    ```bash
+    cd my-existing-repo
+    acton init
+    ```
+
+    If `Acton.toml` already exists, it is left completely untouched.
+  </Tab>
+  <Tab title="Create a dapp scaffold only">
+    `--create-dapp` switches to app-only mode. Acton does not touch `Acton.toml`,
+    `.gitignore`, `.acton/`, or overlay symlinks — it only creates a Vite-based
+    TypeScript scaffold at the given path.
+
+    ```bash
+    # Create ./app (default path)
+    acton init --create-dapp
+
+    # Create ./frontend instead
+    acton init --create-dapp frontend
+    ```
+
+    <Warning>
+      `--create-dapp` is **not** idempotent. It fails if the target directory
+      already exists.
+    </Warning>
+  </Tab>
+  <Tab title="Refresh the standard library">
+    `--stdlib-only` re-extracts the bundled `tolk-stdlib` into `.acton/` without
+    reading or writing any other project files. Use this after upgrading Acton or
+    when `.acton/` has been manually deleted.
+
+    ```bash
+    acton init --stdlib-only
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## What the default flow creates or patches
+
+| Path | Behaviour |
+|------|-----------|
+| `Acton.toml` | Created with discovered contracts if absent; left untouched if present. |
+| `.gitignore` | Missing Acton-related patterns are appended; existing patterns are never removed. |
+| `.acton/tolk-stdlib` | Installed or refreshed. |
+| `global.wallets.toml` symlink | Created when the global file exists and the local path does not yet resolve. |
+| `global.libraries.toml` symlink | Created when the global file exists and the local path does not yet resolve. |
+
+With `--create-dapp`, Acton only writes inside the new app directory.  
+With `--stdlib-only`, Acton only writes inside `.acton/`.
+
+---
+
+## Contract auto-discovery
+
+When `Acton.toml` is created from scratch, Acton walks the current directory
+tree and:
+
+- skips hidden directories and `node_modules`, `target`, `.git`, `.acton`
+- considers only `.tolk` files
+- treats any file that defines `onInternalMessage` as a contract entry file
+- derives the contract key from the file stem with `-` → `_`
+- derives the display name by splitting on `_` / `-` and capitalising each word
+
+---
+
+## Idempotency
+
+`acton init` is safe to run repeatedly:
+
+- never overwrites an existing `Acton.toml`
+- only appends missing `.gitignore` patterns
+- refreshes `.acton/tolk-stdlib` on every run
+- re-attempts symlink creation without breaking existing symlinks
+
+<Note>
+  `--stdlib-only` always re-extracts the standard library, even when the stored
+  version marker matches the current Acton version.
+</Note>
+
+---
+
+## Examples
+
+<CodeGroup>
+```bash Add Acton to an existing repo
+acton init
+```
+
+```bash Create a TypeScript dapp scaffold at ./app (default)
+acton init --create-dapp
+```
+
+```bash Create a TypeScript dapp scaffold at ./frontend
+acton init --create-dapp frontend
+```
+
+```bash Refresh only the bundled standard library
+acton init --stdlib-only
+```
+
+```bash Re-run safely to patch .gitignore and refresh .acton/
+acton init
+```
+</CodeGroup>

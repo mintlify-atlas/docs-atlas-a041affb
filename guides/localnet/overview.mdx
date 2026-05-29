@@ -1,0 +1,68 @@
+---
+title: "Acton Localnet: Local TON Development Network Overview"
+sidebarTitle: "Overview"
+description: "Run a full TON-compatible local node with a built-in explorer, faucet, fork mode, TonCenter API, and reproducible state workflows."
+---
+
+Acton ships a complete local TON development node that you can start with a single command. It runs a TonCenter-compatible HTTP server, bundles an explorer UI you can open in any browser, provides a built-in faucet, and supports forking directly from testnet or mainnet state — all without touching a remote network or managing external infrastructure. Every aspect of the node's behaviour, from its port and persistence mode to which accounts get bootstrapped at startup, is configurable through `Acton.toml` or CLI flags.
+
+## Why use the local node?
+
+<CardGroup cols={2}>
+  <Card title="Fast local feedback" icon="bolt">
+    Deploys, transactions, and get-method calls execute in milliseconds against a local chain. No waiting for testnet finality or rate limits.
+  </Card>
+  <Card title="Fork mode" icon="code-branch">
+    Pull real account state from testnet or mainnet and execute transactions locally. Reproduce mainnet bugs or test against live contract state without spending real TON.
+  </Card>
+  <Card title="Reproducible state" icon="rotate">
+    Persist the chain to SQLite for continuity across runs, or export a portable JSON snapshot and commit it to version control for shared, deterministic test environments.
+  </Card>
+  <Card title="Zero-friction bootstrap" icon="rocket">
+    Configure startup accounts in `Acton.toml` and the node automatically funds and deploys your wallets on every start — no manual airdrop steps needed.
+  </Card>
+</CardGroup>
+
+## Built-in explorer UI
+
+The local node serves a bundled single-page explorer from the same HTTP server that handles API requests. Opening `http://127.0.0.1:<port>/` in a browser shows the explorer dashboard. Client-side routes — `/explorer`, `/tokens`, `/nfts`, `/explorer/address/<ADDR>`, and `/explorer/tx/<HASH>` — all resolve through the same shell without additional configuration.
+
+The explorer reads blockchain data from `/api/v2` and `/api/v3`. It also uses two control endpoints — `/acton_getAddressName` and `/acton_getCompilerAbi` — to display local address aliases and compiler ABI metadata alongside transaction data, making it straightforward to identify contract calls by name rather than raw hash.
+
+## API compatibility
+
+The local node exposes TonCenter-compatible routes under `/api/v2` and `/api/v3`. Most `GET` endpoints used in typical development workflows are available. `POST /api/v2/sendBoc`, `POST /api/v3/message`, and `POST /api/v2/runGetMethod` are all supported, so existing SDKs and tooling that target TonCenter can point at `http://127.0.0.1:<port>` and work without modification.
+
+<Note>
+  A small number of TonCenter endpoints — such as `getWalletInformation`, `getTokenData`, and block-proof routes — are not implemented in the local node. See the [API compatibility page](/guides/localnet/getting-started) for the full coverage matrix.
+</Note>
+
+## Control API
+
+Beyond the TonCenter-compatible routes, the node exposes a set of `acton_*` control endpoints intended for local development tooling. These include:
+
+- **`POST /acton_fundAccount`** — Credit any address with local funds instantly.
+- **`POST /acton_sendInternalMessage`** — Inject a raw internal message BOC into the queue (TonCenter endpoints accept external-in messages only).
+- **`POST /acton_setShardAccount`** — Replace an account state with an arbitrary BOC.
+- **`POST /acton_dumpState` / `POST /acton_loadState`** — Trigger a JSON snapshot export or import while the server is running.
+- **`GET /acton_nodeInfo`** — Return uptime, latest block seqno, and remote/local state-source information.
+
+Control routes are not authenticated and should not be exposed publicly. Rate limiting, when enabled via `--rate-limit`, applies only to `/api` routes — control routes remain available regardless.
+
+## Relationship to `acton test`
+
+`acton test` uses an **in-memory TVM emulator** for unit tests — it does not start the local node or make network calls. The local node is a separate process you run alongside your development workflow when you need a live HTTP API, explorer UI, or realistic end-to-end transaction flows. Use the local node for integration tests, manual exploration, and fork-based debugging; use `acton test` for fast unit-level contract logic tests.
+
+## Learn more
+
+<CardGroup cols={2}>
+  <Card title="Getting Started" href="/guides/localnet/getting-started" icon="play">
+    Start the node, request funds from the faucet, verify the API, and run a complete local workflow.
+  </Card>
+  <Card title="Forking from Testnet / Mainnet" href="/guides/localnet/forking" icon="code-branch">
+    Pull real account state locally, including historical forks pinned to a specific block number.
+  </Card>
+  <Card title="Persistence & Snapshots" href="/guides/localnet/persistence" icon="database">
+    Keep state across restarts with SQLite, or export portable JSON snapshots for reproducible runs.
+  </Card>
+</CardGroup>

@@ -1,0 +1,293 @@
+---
+title: "Building Tolk Contracts with Acton Build System"
+sidebarTitle: "Building"
+description: "Compile Tolk smart contracts with acton build: single vs all contracts, output dirs, build cache, dependency kinds, wrapper generation, and BoC support."
+---
+
+Acton's build system takes your Tolk source files and turns them into deployable bytecode, ABI descriptors, dependency helper files, and optionally typed wrappers — all governed by the `Acton.toml` manifest. Understanding the build pipeline is key to keeping your project fast, deterministic, and well-structured as contracts grow in complexity.
+
+## Build commands overview
+
+Two commands drive compilation:
+
+<CardGroup cols={2}>
+  <Card title="acton build" icon="hammer">
+    Runs the full project pipeline: compiles all contracts registered in `Acton.toml`, resolves the dependency graph, and writes artifacts to `build/` and `gen/`.
+  </Card>
+  <Card title="acton compile" icon="bolt">
+    Targets a single `.tolk` file — useful for quick inspection of compiler output or producing standalone `.boc` and `.fif` files outside a project build.
+  </Card>
+</CardGroup>
+
+## Running acton build
+
+### Build all contracts
+
+```bash
+acton build
+```
+
+Acton reads every `[contracts.*]` entry in `Acton.toml`, resolves the full dependency graph, compiles contracts in topological order, and writes artifacts.
+
+### Build a single contract
+
+Provide the contract ID to limit the build to that contract and its transitive dependencies:
+
+```bash
+acton build Counter
+```
+
+This is especially useful in large projects where you only want fast feedback on the contract under active development.
+
+### Custom output directories
+
+```bash
+# Redirect JSON artifacts
+acton build --out-dir artifacts/
+
+# Redirect dependency helper files
+acton build --gen-dir artifacts/gen
+
+# Save compiled Fift files alongside BoC output
+acton build --output-fift build/fift
+
+# Print code and hash after a successful build
+acton build Counter --info
+```
+
+These CLI flags override the values in `[build]` inside `Acton.toml`:
+
+```toml title="Acton.toml"
+[build]
+out-dir    = "artifacts"
+gen-dir    = "artifacts/gen"
+output-abi = "artifacts/abi"
+output-fift = "artifacts/fift"
+```
+
+<Note>
+  Config paths in `[build]` are resolved relative to the project root. CLI flags like `--out-dir` are resolved relative to the current working directory unless absolute.
+</Note>
+
+## What gets written
+
+For each successfully compiled contract, Acton produces:
+
+| Artifact | Location | Contents |
+|---|---|---|
+| JSON build artifact | `build/<Contract>.json` | Base64-encoded code + code hash |
+| ABI JSON | `build/abi/<Contract>.json` | Compiler ABI (when available) |
+| Dependency helper | `gen/<Dep>.code.tolk` | Tolk `asm` function embedding child code |
+| Fift source | `build/fift/<Contract>.fif` | Optional; only for `.tolk` source contracts |
+| Binary BoC | `<output>` | Optional; only when `output` is set in `Acton.toml` |
+
+## Contract dependencies
+
+Parent contracts often need child contract code at runtime — to deploy children or to verify their code hash. Declare dependencies in `Acton.toml`:
+
+```toml title="Acton.toml"
+[contracts.JettonMinter]
+src = "contracts/JettonMinter.tolk"
+depends = ["JettonWallet"]
+
+[contracts.JettonWallet]
+src = "contracts/JettonWallet.tolk"
+depends = []
+```
+
+### Dependency kinds
+
+<Tabs>
+  <Tab title="embed_code (default)">
+    The full compiled child code is embedded directly in the parent at build time. The generated helper file in `gen/` contains a Tolk `asm` function that pushes the child BoC as a cell reference:
+
+    ```toml title="Acton.toml"
+    depends = ["Wallet"]
+    # or equivalently:
+    depends = [{ name = "Wallet", kind = "embed_code" }]
+    ```
+
+    Generated assembly:
+
+    ```tolk title="gen/Wallet.code.tolk"
+    @pure
+    fun walletCompiledCode(): cell asm """
+        "<base64_boc_data>" base64>B B>boc PUSHREF
+    """
+    ```
+  </Tab>
+  <Tab title="library_ref">
+    Generates a library reference instead of embedding full code. The library must be deployed separately to the masterchain using `acton library publish`.
+
+    ```toml title="Acton.toml"
+    depends = [{ name = "Wallet", kind = "library_ref" }]
+    ```
+
+    Generated assembly:
+
+    ```tolk title="gen/Wallet.code.tolk"
+    @pure
+    fun walletCompiledCode(): cell asm """
+        "<base64_boc_data>" base64>B B>boc hashu <b 2 8 u, swap 256 u, b>spec PUSHREF
+    """
+    ```
+  </Tab>
+</Tabs>
+
+### Detailed dependency configuration
+
+Use the detailed form to override the generated function name or output path:
+
+```toml title="Acton.toml"
+[contracts.NftCollection]
+src = "contracts/NftCollection.tolk"
+depends = [
+  { name = "NftItem", kind = "embed_code", function = "nftItemCode", path = "gen/nft_item.code.tolk" }
+]
+```
+
+| Field      | Required | Default                        | Description                                      |
+|------------|:--------:|--------------------------------|--------------------------------------------------|
+| `name`     | Yes      | —                              | Contract ID to depend on.                        |
+| `kind`     | No       | `"embed_code"`                 | `"embed_code"` or `"library_ref"`.               |
+| `function` | No       | Auto-derived from contract ID  | Custom name for the generated helper function.   |
+| `path`     | No       | `{gen-dir}/{name}.code.tolk`   | Custom output path for the generated helper file.|
+
+### Circular dependency detection
+
+Acton resolves the full dependency graph before compiling. A cycle aborts the build immediately:
+
+```
+Error: Circular dependency detected in contracts: A → B → A → C
+```
+
+Dependency-graph failures do not leave behind partial build artifacts.
+
+## Best-effort builds
+
+Once dependency resolution succeeds, Acton builds eligible contracts and discards those that fail to compile — it does not abort the entire run. Artifacts from successful contracts in the current run remain on disk. A parent contract may still fail if its dependency failed to build and its `gen/` helper was never produced.
+
+## Build caching
+
+Acton maintains a file-based build cache under `build/cache/`. Each entry is keyed on:
+
+- Source file path
+- Tolk compiler version
+- Optimization level and debug mode
+- Fift generation flag
+- Import mappings from `Acton.toml`
+
+A cache entry is valid only when the content hash of every imported source file matches the stored hash. This includes `gen/` helper files — changing a child contract's source also invalidates the cache for any parent that imports that helper.
+
+The cache is shared by `acton build`, `acton compile`, and `acton test`, so recent builds often speed up subsequent test runs.
+
+Clear the cache to force a full rebuild:
+
+```bash
+acton build --clear-cache
+```
+
+<Note>
+  `--clear-cache` removes entries under `build/cache/` only. It does not delete other artifacts in `build/`, generated helpers in `gen/`, or saved traces.
+</Note>
+
+## Wrapper generation
+
+After building, generate typed Tolk wrappers from each contract's ABI:
+
+```bash
+# Generate wrapper for a single contract
+acton wrapper Counter
+
+# Generate wrappers for every contract in Acton.toml
+acton wrapper --all
+
+# Also emit a test stub
+acton wrapper Counter --test
+
+# Generate a TypeScript wrapper instead
+acton wrapper Counter --ts
+```
+
+The generated `Counter.gen.tolk` wrapper provides:
+
+- `Counter.fromStorage(storage)` — initializes contract state and derives the deployment address.
+- `counter.deploy(from, config)` — deploys the contract.
+- `counter.send{MessageName}(from, ...)` — one method per declared incoming message type.
+- `counter.{getMethodName}()` — one method per declared get method.
+
+The same wrapper API works in both tests and scripts — you do not need separate wrapper versions for each context.
+
+Configure default wrapper output directories in `Acton.toml`:
+
+```toml title="Acton.toml"
+[wrappers.tolk]
+output-dir = "wrappers"
+generate-test = true
+test-output-dir = "tests"
+
+[wrappers.typescript]
+output-dir = "wrappers-ts"
+```
+
+## Precompiled BoC contracts
+
+Point `src` at a `.boc` file to include a precompiled contract without running the Tolk compiler on its code:
+
+```toml title="Acton.toml"
+[contracts.Precompiled]
+src = "contracts/Precompiled.boc"
+types = "contracts/Precompiled.types.tolk"
+```
+
+When `types` is configured, Acton compiles the interface file to extract ABI and enable wrapper generation. Without `types`, `acton wrapper --all` skips the contract.
+
+<Accordion title="How BoC contracts differ from Tolk sources">
+- Contract code is loaded directly from the `.boc` file — the Tolk compiler never runs on that code.
+- `acton build` always writes the regular JSON artifact for a valid BoC contract.
+- `--output-fift` only applies to compiled `.tolk` contracts; no Fift is produced for BoC entries.
+- Other contracts can still declare `depends` on a BoC contract; the precompiled code is embedded as-is.
+- The `output = "path/to/file.boc"` field can still write a normalized BoC copy.
+</Accordion>
+
+## Dependency graph visualization
+
+Generate a DOT file representing the full contract dependency graph:
+
+```bash
+acton build --graph diagrams/dependencies.dot
+```
+
+<Tabs>
+  <Tab title="macOS">
+    ```bash
+    brew install graphviz
+    dot -Tsvg diagrams/dependencies.dot -o diagrams/dependencies.svg
+    ```
+  </Tab>
+  <Tab title="Ubuntu/Debian">
+    ```bash
+    sudo apt-get install graphviz
+    dot -Tsvg diagrams/dependencies.dot -o diagrams/dependencies.svg
+    ```
+  </Tab>
+</Tabs>
+
+The DOT output labels each contract box with its name and annotates edges with the dependency kind (`embed code` or `library ref`).
+
+## acton build reference
+
+```bash
+acton build [OPTIONS] [CONTRACT]
+```
+
+| Flag | Description |
+|---|---|
+| `[CONTRACT]` | Optional contract ID. Builds only this contract and its dependencies. |
+| `--clear-cache` | Clears the compilation cache before building. |
+| `--graph <PATH>` | Generates a dependency graph in DOT format. |
+| `--out-dir <DIR>` | Directory for JSON build artifacts. Defaults to `build/`. |
+| `--gen-dir <DIR>` | Directory for generated dependency helpers. Defaults to `gen/`. |
+| `--output-abi <DIR>` | Directory for ABI JSON files. Defaults to `build/abi/`. |
+| `--output-fift <DIR>` | Directory for Fift output. Omitted by default. |
+| `--info` | Prints compiled code and code hash after a successful build. |

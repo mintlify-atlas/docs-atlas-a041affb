@@ -1,0 +1,92 @@
+---
+title: "Acton: All-in-One TON Smart Contract Toolkit"
+sidebarTitle: "Introduction"
+description: "Acton is a Rust-based CLI that unifies scaffolding, building, testing, linting, debugging, wallet management, and deployment for TON smart contracts."
+---
+
+Acton is the all-in-one development toolkit for TON smart contracts. Written in Rust for native speed, it ships as a single, dependency-free binary that covers the entire contract lifecycle — from scaffolding a new project with `acton new` all the way to deploying and verifying on mainnet — without reaching for separate tools or language runtimes. Whether you are writing your first Tolk contract or maintaining a production dApp, every workflow runs through one familiar CLI.
+
+## Why Acton
+
+TON contract development historically required assembling several independent tools: a compiler, a test harness, a wallet manager, a linter, a deployment helper, and more. Acton replaces that patchwork with a single, cohesive experience that is optimised for both human developers and AI coding agents.
+
+<CardGroup cols={2}>
+  <Card title="Single CLI" icon="terminal">
+    One command covers create, build, test, debug, deploy, and verify. No glue scripts required.
+  </Card>
+  <Card title="Native Rust Speed" icon="bolt">
+    The build system and test runtime are implemented in Rust, keeping compile and test cycles fast.
+  </Card>
+  <Card title="Tolk-First Workflow" icon="code">
+    Built-in wrappers, testing utilities, and deployment scripts are all written in Tolk, the first-class language for TON contracts.
+  </Card>
+  <Card title="dApp Scaffolding" icon="browser">
+    The `--app` flag adds a Vite/React frontend scaffold and auto-generated TypeScript wrappers so contracts and the frontend always stay in sync.
+  </Card>
+  <Card title="Advanced Test Runner" icon="flask">
+    Fork-mode tests, gas snapshots, coverage reporting, mutation testing, fuzz testing, and an interactive browser Test UI are all built in.
+  </Card>
+  <Card title="Built-in Localnet" icon="server">
+    `acton localnet` spins up a local TON node for offline development and forks live network state on demand.
+  </Card>
+  <Card title="Linter with 25+ Rules" icon="shield-check">
+    `acton check` enforces correctness and style rules across your Tolk sources, with auto-fix support and CI-friendly output formats.
+  </Card>
+  <Card title="Wallet Management" icon="wallet">
+    Create, import, fund, and sign with local or global wallets directly from the CLI — no external wallet app needed during development.
+  </Card>
+  <Card title="DAP Debugger" icon="bug">
+    The built-in Debug Adapter Protocol debugger integrates with VS Code and JetBrains IDEs for source-level stepping through Tolk contracts.
+  </Card>
+  <Card title="On-Chain Libraries" icon="book">
+    Publish reusable Tolk code as masterchain library accounts and reference them from any number of deployed contracts.
+  </Card>
+</CardGroup>
+
+## Key features at a glance
+
+| Feature | Command |
+|---|---|
+| Scaffold a project | `acton new <name> --template counter` |
+| Compile contracts | `acton build` |
+| Run the test suite | `acton test` |
+| Lint Tolk sources | `acton check` |
+| Format Tolk files | `acton fmt` |
+| Deploy via script | `acton script contracts/scripts/deploy.tolk --net testnet` |
+| Verify on-chain | `acton verify Counter --net testnet --address <ADDR>` |
+| Manage wallets | `acton wallet new --name deployer --airdrop --version v5r1` |
+| Start local node | `acton localnet start` |
+| Update the CLI | `acton up` |
+
+## Start here
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install Acton on macOS, Linux, or WSL in one command and verify the binary is on your `PATH`.
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Scaffold a counter project from the built-in template, run tests, and open the dApp frontend in under five minutes.
+  </Card>
+  <Card title="Walkthrough" icon="map" href="/walkthrough">
+    A guided tour through the full development cycle: build, lint, test with coverage and mutation, deploy, and verify.
+  </Card>
+</CardGroup>
+
+## Using the CLI
+
+Run `acton --help` for a command overview, `acton help <command>` for the detailed manual of a specific command, and `acton <nested> --help` for nested subcommands.
+
+```bash
+# Print top-level help
+acton --help
+
+# Print the full manual for the test command
+acton help test
+
+# Print help for the wallet list subcommand
+acton wallet list --help
+```
+
+<Tip>
+  If something looks wrong with resolved paths or the standard library, run `acton doctor` for a diagnostic report before filing a bug.
+</Tip>

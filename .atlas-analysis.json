@@ -1,23 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "Acton",
+  "projectType": "cli-tool",
+  "projectName": "Acton",
+  "projectDescription": "An all-in-one TON smart contract development toolkit that combines project scaffolding, build, testing, scripting, wallet management, verification, linting, formatting, debugging, and low-level VM tooling in a single Rust-based CLI.",
   "theme": "aspen",
-  "colors": {
-    "primary": "#0088CC",
-    "light": "#E8F4FB",
-    "dark": "#005A8A"
-  },
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/ton-blockchain/acton"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/ton-blockchain/acton"
-    }
-  },
+  "primaryColor": "#0088CC",
+  "lightColor": "#E8F4FB",
+  "darkColor": "#005A8A",
   "navigation": {
     "tabs": [
       {
@@ -126,5 +114,42 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "Single CLI covering the full TON smart contract lifecycle: create, build, test, debug, deploy, verify",
+    "Native Rust speed for the test runner, compiler integration, and VM emulation",
+    "Tolk-first workflow with built-in wrappers, testing utilities, and TypeScript wrapper generation",
+    "Fast test runner with fork mode, gas snapshots, coverage, mutation testing, fuzz testing, and a browser Test UI",
+    "Built-in local TON network with faucet, fork mode, startup accounts, and SQLite-backed persistence",
+    "Tolk linter (acton check) with 25+ built-in rules and SARIF/GitHub/GitLab CI output formats",
+    "Wallet management for testnet and mainnet deployment with TON Connect support",
+    "DAP-compatible interactive debugger for Tolk smart contracts",
+    "On-chain library publishing, top-up, and deduplication",
+    "FunC-to-Tolk migration tool (acton func2tolk)"
+  ],
+  "publicApiSurface": [
+    "acton new <path> --template <template>",
+    "acton init [--create-dapp] [--stdlib-only]",
+    "acton build [--contract <name>] [--out-dir <dir>]",
+    "acton test [path] [--filter <regex>] [--coverage] [--mutate] [--fork-net <network>] [--ui]",
+    "acton script <file> [args...] [--net <network>] [--debug]",
+    "acton check [--fix] [--output <format>]",
+    "acton fmt [--check] [--stdin]",
+    "acton wrapper <contract> [--all] [--ts] [--test]",
+    "acton wallet new|list|balance|export|import",
+    "acton verify <contract> --net <network>",
+    "acton library publish|fetch|info|topup",
+    "acton localnet start|stop|status|faucet",
+    "acton rpc info|get-method|account",
+    "acton disasm <input>",
+    "acton retrace <tx-hash>",
+    "acton up [--version <ver>] [--trunk]",
+    "acton func2tolk <file>",
+    "acton doctor",
+    "acton ls",
+    "acton run <script-name>",
+    "acton compile <file> [--output <path>]",
+    "acton doc <instruction>",
+    "Acton.toml: [package], [toolchain], [contracts], [build], [test], [lint], [fmt], [localnet], [scripts], [import-mappings], [networks]"
+  ]
 }

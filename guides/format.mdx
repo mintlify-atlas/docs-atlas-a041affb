@@ -1,0 +1,193 @@
+---
+title: "Formatting Tolk Contracts with acton fmt"
+sidebarTitle: "Format"
+description: "Use acton fmt to auto-format Tolk source files, enforce style in CI with --check, integrate with editors via --stdin, and configure ignore patterns in Acton.toml."
+---
+
+`acton fmt` is the opinionated Tolk code formatter built into Acton. It rewrites `.tolk` files in place to produce consistent, predictable output — uniform indentation, import ordering, and line width — so code review stays focused on logic rather than style. The formatter can also run in a non-destructive check mode for CI validation and accepts source from stdin for seamless editor integration.
+
+## Format all files in the project
+
+Run without arguments from the project root to format every `.tolk` file discovered under it:
+
+```bash
+acton fmt
+```
+
+Acton scans the resolved project root recursively. Built-in directories (`node_modules`, `.git`, `target`, `.acton`, `.codex`, `.claude`) are always skipped.
+
+## Format selected files or directories
+
+Pass one or more paths to limit the scope:
+
+```bash
+# Format all .tolk files under contracts/
+acton fmt contracts
+
+# Format a single file
+acton fmt contracts/Counter.tolk
+
+# Format multiple targets at once
+acton fmt contracts scripts/deploy.tolk
+```
+
+This is especially useful in a pre-commit hook that formats only staged files.
+
+## Format from another directory
+
+Point Acton at the project explicitly when the current shell is outside the project root:
+
+```bash
+acton fmt ../my-project
+```
+
+Use `--manifest-path` to also load a specific `Acton.toml`:
+
+```bash
+acton fmt --manifest-path ../my-project/Acton.toml ../my-project
+```
+
+## Check mode (CI)
+
+Use `--check` to validate formatting without rewriting files:
+
+```bash
+acton fmt --check
+```
+
+In check mode, Acton prints a diff for every file that does not match the formatter output and exits with a non-zero status. A zero exit status means all files are already formatted.
+
+```bash
+# Example CI step
+acton fmt --check || (echo "Run acton fmt to fix formatting." && exit 1)
+```
+
+## Stdin mode (editor integration)
+
+Use `--stdin` to pipe source through the formatter without touching disk. This is the integration point used by editor plugins that format on save:
+
+```bash
+# Format and print to stdout
+cat contracts/Counter.tolk | acton fmt --stdin
+
+# Use --stdin-filepath to hint the display path in error messages
+cat contracts/Counter.tolk | acton fmt --stdin --stdin-filepath contracts/Counter.tolk
+```
+
+`--stdin` cannot be combined with file or directory path arguments.
+
+## Diff output
+
+`--check` already prints diffs for unformatted files. To see what changes `acton fmt` would make without applying them, combine `--check` with standard output redirection:
+
+```bash
+acton fmt --check 2>&1 | less
+```
+
+## Configuring the formatter
+
+Store formatter defaults in the `[fmt]` section of `Acton.toml`:
+
+```toml title="Acton.toml"
+[fmt]
+width = 100
+ignore = ["contracts/generated/*.tolk"]
+separate-import-groups = true
+```
+
+| Field | Type | Default | Description |
+|:------|:-----|:--------|:------------|
+| `width` | integer | `100` | Maximum formatted line width. |
+| `ignore` | string[] | — | Glob patterns of files to skip during recursive traversal. |
+| `separate-import-groups` | boolean | `false` | Insert a blank line between import groups. |
+
+Import groups are ordered as: `@stdlib`, `@acton`, `@<other>`, plain imports, `./`, `../`. The formatter sorts imports within each group automatically.
+
+<Note>
+  A file passed explicitly to `acton fmt` is still formatted even if it matches `[fmt].ignore`. Ignore patterns apply only during directory traversal, not to explicit path arguments.
+</Note>
+
+## Git pre-commit hook
+
+Add a pre-commit hook to format staged Tolk files before every commit:
+
+<Steps>
+
+### Create the hook file
+
+```bash
+cat > .git/hooks/pre-commit << 'EOF'
+#!/usr/bin/env bash
+set -e
+
+# Collect staged .tolk files
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR | grep '\.tolk$' || true)
+[ -z "$STAGED" ] && exit 0
+
+# Format them in place
+echo "$STAGED" | xargs acton fmt
+
+# Re-stage the formatted files
+echo "$STAGED" | xargs git add
+EOF
+chmod +x .git/hooks/pre-commit
+```
+
+### Verify the hook works
+
+Stage a `.tolk` file and run `git commit`. Acton formats the file before the commit is recorded.
+
+</Steps>
+
+## Editor integration
+
+<Tabs>
+  <Tab title="VS Code">
+    The [TON extension for VS Code](https://marketplace.visualstudio.com/items?itemName=ton-core.vscode-ton) calls `acton fmt --stdin` automatically on save. After installing the extension, add the following to your workspace `settings.json`:
+
+    ```json title=".vscode/settings.json"
+    {
+      "[tolk]": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "ton-core.vscode-ton"
+      }
+    }
+    ```
+
+    The extension reads `[fmt]` settings from `Acton.toml` automatically, so `width` and import-group preferences are respected without additional configuration.
+  </Tab>
+  <Tab title="JetBrains">
+    The [TON plugin for JetBrains IDEs](https://plugins.jetbrains.com/plugin/23382-ton) integrates with the IDE's **Reformat Code** action. After installing the plugin, open **Settings → Tools → Actions on Save** and enable **Reformat code** for Tolk files. The plugin calls `acton fmt` using the settings from `Acton.toml`.
+  </Tab>
+  <Tab title="Other editors (generic LSP/stdin)">
+    Any editor that supports formatting via a shell command can invoke:
+
+    ```bash
+    acton fmt --stdin --stdin-filepath "$FILE"
+    ```
+
+    Pass the file content on stdin; the formatter writes the result to stdout. Use `--stdin-filepath` so that error messages reference the correct filename.
+  </Tab>
+</Tabs>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="The formatter reports syntax errors">
+    Fix the parse error first, then run the formatter again. `acton fmt` formats only valid Tolk source files. The error output includes the file name and line where parsing failed.
+  </Accordion>
+  <Accordion title="A file was skipped unexpectedly">
+    Check whether the file path matches a pattern in `[fmt].ignore` or one of Acton's built-in excluded directories: `node_modules`, `.git`, `target`, `.acton`, `.codex`, `.claude`. Pass the path explicitly to override ignore patterns.
+  </Accordion>
+  <Accordion title="CI fails on formatting">
+    Run `acton fmt` locally, commit the rewritten `.tolk` files, and rerun the pipeline. Make sure the same `Acton.toml` is checked in so the `width` and `ignore` settings match between local and CI environments.
+  </Accordion>
+  <Accordion title="Import order keeps changing between runs">
+    Import ordering is deterministic. If order changes between runs, different versions of Acton may be producing different output. Pin the Acton version in `[toolchain]`:
+
+    ```toml title="Acton.toml"
+    [toolchain]
+    acton = "0.1.0"
+    ```
+  </Accordion>
+</AccordionGroup>

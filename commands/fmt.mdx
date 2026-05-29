@@ -1,0 +1,134 @@
+---
+title: "acton fmt — format Tolk smart contract sources"
+sidebarTitle: "fmt"
+description: "Format Tolk files with acton fmt. Covers --check, --stdin, --stdin-filepath, --range, Acton.toml [fmt] config, import sorting, and CI validation patterns."
+---
+
+`acton fmt` formats `.tolk` source files using the built-in Tolk formatter. By
+default it rewrites files in place; `--check` mode instead validates formatting
+and exits non-zero when any file needs changes, making it suitable for
+pre-commit hooks and CI. For editor integrations, `--stdin` reads a source
+buffer from standard input and writes the formatted result to standard output
+without touching any files.
+
+## Synopsis
+
+```bash
+acton fmt [OPTIONS] [PATHS...]
+```
+
+When `PATHS` is omitted, Acton scans the resolved project root recursively.
+
+---
+
+## Arguments & options
+
+### Format options
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `[PATHS...]` | paths | project root | Files or directories to format. Repeatable. Conflicts with `--stdin`. |
+| `--check` | flag | false | Validate formatting without rewriting. Prints a unified diff for each misformatted file and exits non-zero if any changes are needed. |
+| `--stdin` | flag | false | Read Tolk source from stdin and write formatted output to stdout. Intended for editor integrations. Conflicts with `PATHS`. |
+| `--stdin-filepath <PATH>` | string | — | Virtual file path shown in stdin diagnostics. Accepted only with `--stdin`. Acton does not read or write this path. |
+| `--range <startLine:startChar-endLine:endChar>` | string | — | Format only the specified zero-based source range (zero-based lines, zero-based UTF-8 byte columns). Disables import reordering. Requires exactly one explicit `.tolk` file path (or `--stdin`). |
+
+### Global flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--color <WHEN>` | `auto` \| `always` \| `never` | `auto` | Control coloured output. |
+| `--manifest-path <PATH>` | path | — | Path to `Acton.toml`. Conflicts with `--project-root`. |
+| `--project-root <PATH>` | path | — | Path to project root. Conflicts with `--manifest-path`. |
+
+---
+
+## Acton.toml configuration
+
+```toml title="Acton.toml"
+[fmt]
+width                  = 100
+ignore                 = ["contracts/generated/*.tolk"]
+separate-import-groups = true
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `width` | integer | 80 | Maximum formatted line width. |
+| `ignore` | glob[] | `[]` | Additional exclude globs applied during directory traversal. Explicit file arguments bypass these globs. |
+| `separate-import-groups` | bool | false | Insert blank lines between import groups. |
+
+---
+
+## Import sorting
+
+Imports are sorted into groups in this order, lexicographically within each group:
+
+1. `@stdlib`
+2. `@acton`
+3. Other `@…` mappings
+4. Plain imports
+5. `./…` relative
+6. `../…` relative
+
+---
+
+## Behaviour notes
+
+- Only `.tolk` files are formatted; directory traversal is recursive.
+- Built-in excludes always apply: `node_modules`, `.git`, `target`, `.acton`.
+- Explicit file arguments are formatted even when they match `[fmt].ignore`.
+- `[fmt].ignore` applies only to directory traversal, not to explicit paths.
+- Syntax errors are reported to stderr and cause a non-zero exit.
+- `--stdin --check` compares stdin with the formatted output and prints a unified diff.
+- `--range` disables import reordering for that invocation.
+- Editor integrations that expose Unicode scalar or UTF-16 positions must
+  convert them to UTF-8 byte columns before invoking `--range`.
+
+---
+
+## Examples
+
+<CodeGroup>
+```bash Format all Tolk files in the project
+acton fmt
+```
+
+```bash Format specific paths
+acton fmt contracts scripts/deploy.tolk
+```
+
+```bash Validate formatting without writing (CI / pre-commit)
+acton fmt --check
+```
+
+```bash Check formatting from a different project root
+acton --project-root ../my-project fmt --check
+```
+
+```bash Format only a selected source range
+acton fmt contracts/Counter.tolk --range 2:4-5:1
+```
+
+```bash Format a file via stdin/stdout (editor integration)
+acton fmt --stdin --stdin-filepath contracts/Counter.tolk < contracts/Counter.tolk
+```
+
+```bash Check stdin formatting
+cat contracts/Counter.tolk | acton fmt --stdin --check
+```
+</CodeGroup>
+
+---
+
+## CI recipe
+
+```yaml title=".github/workflows/ci.yml"
+- name: Check formatting
+  run: acton fmt --check
+```
+
+<Tip>
+  Add `acton fmt --check` to your pre-commit hook (managed by
+  `acton hooks`) so formatting is validated before every commit.
+</Tip>

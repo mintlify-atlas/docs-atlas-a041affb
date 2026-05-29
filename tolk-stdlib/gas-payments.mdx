@@ -1,0 +1,237 @@
+---
+title: "Tolk Gas and Payments Module — Fees, Limits, and Acceptance"
+sidebarTitle: "Gas Payments"
+description: "Reference for @stdlib/gas-payments — acceptExternalMessage, gas limits, calculateGasFee, calculateStorageFee, calculateForwardFee, and storage debt."
+---
+
+The `gas-payments` module provides all the TVM-level primitives for reasoning about transaction fees and gas consumption in TON smart contracts. It covers three categories: accepting external messages and managing gas limits; calculating gas, storage, and forward fees for off-chain estimation or on-chain validation; and querying the current contract's accumulated storage debt. These functions are crucial for writing economically correct contracts — especially wallets, jettons, and any contract that processes external messages.
+
+## Import
+
+```tolk
+import "@stdlib/gas-payments"
+```
+
+---
+
+## External Message Acceptance
+
+When a smart contract receives an external-in message, it must explicitly accept the message to commit to paying the gas cost of the current transaction. Without calling `acceptExternalMessage`, the message is discarded and no state changes are persisted.
+
+```tolk
+fun acceptExternalMessage(): void
+```
+
+The typical pattern for a wallet or oracle contract:
+
+```tolk
+import "@stdlib/gas-payments"
+
+fun onExternalMessage(in: ExternalInMessage) {
+    // Validate the message first (signature, seqno, etc.)
+    verifySignature(in.body, publicKey);
+
+    // Only accept after validation — prevents gas draining attacks
+    acceptExternalMessage();
+
+    // Process the message
+    executeAction(in.body);
+}
+```
+
+<Warning>
+Always validate the message **before** calling `acceptExternalMessage`. If you accept first and validation fails later, you have already paid for the compute phase with no useful work done, and the contract state is not updated (the transaction is still committed as accepted).
+</Warning>
+
+---
+
+## Gas Consumed at the Moment
+
+```tolk
+fun getGasConsumedAtTheMoment(): int
+```
+
+Returns the amount of gas consumed so far in the current compute phase, in gas units. Useful for computing a fee to charge the caller based on actual work done.
+
+```tolk
+import "@stdlib/gas-payments"
+
+fun onInternalMessage(in: InMessage) {
+    // ... expensive computation ...
+    val gasUsed = getGasConsumedAtTheMoment();
+    val fee = calculateGasFee(BASECHAIN, gasUsed);
+    // send fee back to a treasury, or subtract from caller's balance
+}
+```
+
+---
+
+## Gas Limit Control
+
+By default, the gas limit for processing an internal message is derived from the amount of TON attached to that message. These functions let you override that default:
+
+```tolk
+// Set gl = min(limit, gm); reset gc to 0
+fun setGasLimit(limit: int): void
+
+// Set gl = gm; reset gc to 0
+fun setGasLimitToMaximum(): void
+```
+
+Use `setGasLimitToMaximum` when a contract should always run to completion regardless of the value attached, for example in the elector or config system contracts:
+
+```tolk
+import "@stdlib/gas-payments"
+
+fun onInternalMessage(in: InMessage) {
+    // Allow this contract to consume up to the network maximum
+    setGasLimitToMaximum();
+    // ...
+}
+```
+
+---
+
+## Fee Calculation
+
+### Gas Fee
+
+```tolk
+// Full gas fee including flat price
+@pure
+fun calculateGasFee(workchain: int8, gasUsed: int): coins
+
+// Gas fee without flat price component
+@pure
+fun calculateGasFeeWithoutFlatPrice(workchain: int8, gasUsed: int): coins
+```
+
+Calculates the nanoton cost of consuming `gasUsed` gas units in the given workchain. Uses the current blockchain configuration (Param 20 for masterchain, Param 21 for basechain).
+
+```tolk
+import "@stdlib/gas-payments"
+
+// Estimate the fee before sending a response
+val expectedGas = 5000;
+val fee = calculateGasFee(BASECHAIN, expectedGas);
+val reply = createMessage({
+    bounce: BounceMode.NoBounce,
+    value: fee,
+    dest: in.senderAddress,
+    body: FeeEstimate { amount: fee },
+});
+reply.send(SEND_MODE_REGULAR);
+```
+
+### Storage Fee
+
+```tolk
+fun calculateStorageFee(workchain: int8, seconds: int, bits: int, cells: int): coins
+```
+
+Calculates the nanoton cost of storing a contract state of `bits` bits and `cells` cells for `seconds` seconds in the given workchain. Uses the current storage prices (Param 18).
+
+```tolk
+import "@stdlib/gas-payments"
+
+fun estimateOneYearStorageFee(): coins {
+    val (bits, cells, _, _) = contract.getData().calculateSize(1000);
+    return calculateStorageFee(BASECHAIN, 365 * 86400, bits!, cells!);
+}
+```
+
+### Forward Fee
+
+```tolk
+// Full forward fee including lump price
+@pure
+fun calculateForwardFee(workchain: int8, bits: int, cells: int): coins
+
+// Forward fee without lump price component
+@pure
+fun calculateForwardFeeWithoutLumpPrice(workchain: int8, bits: int, cells: int): coins
+```
+
+Calculates the nanoton cost of sending a message of `bits` bits and `cells` cell references in the given workchain. Uses message forward prices (Param 24/25).
+
+```tolk
+import "@stdlib/gas-payments"
+
+fun onInternalMessage(in: InMessage) {
+    val responseBody = ResponseData { result: 42 };
+    val responseCell = responseBody.toCell();
+    val (bits, cells, _, _) = responseCell.calculateSize(100);
+
+    val fwdFee = calculateForwardFee(BASECHAIN, bits!, cells!);
+    // Ensure the response can be paid for from the remaining value
+    require(in.valueCoins >= fwdFee + ton("0.01"), 402);
+
+    val reply = createMessage({
+        bounce: BounceMode.NoBounce,
+        value: in.valueCoins - fwdFee,
+        dest: in.senderAddress,
+        body: responseBody,
+    });
+    reply.send(SEND_MODE_REGULAR);
+}
+```
+
+---
+
+## Storage Debt
+
+```tolk
+// Accumulated unpaid storage fees (debt)
+@pure
+fun contract.getStorageDuePayment(): coins
+
+// Storage fees actually charged in the current storage phase
+@pure
+fun contract.getStoragePaidPayment(): coins
+```
+
+`getStorageDuePayment` returns how many nanotons the contract owes for storage (accumulated over time, not yet paid). If this reaches the freeze threshold, the contract is frozen. `getStoragePaidPayment` returns how much was charged in the storage phase that preceded the current compute phase.
+
+```tolk
+import "@stdlib/gas-payments"
+
+fun onInternalMessage(in: InMessage) {
+    val debt = contract.getStorageDuePayment();
+    if (debt > ton("0.01")) {
+        // Contract is accumulating storage debt — warn or handle
+        eprintln("Storage debt is high");
+    }
+
+    val charged = contract.getStoragePaidPayment();
+    // charged was deducted from contract balance before this compute phase
+}
+```
+
+---
+
+## Full Example: External Wallet with Gas Management
+
+```tolk
+import "@stdlib/gas-payments"
+
+fun onExternalMessage(in: ExternalInMessage) {
+    var storage = WalletStorage.fromCell(contract.getData());
+
+    // Parse and validate the signed request
+    val request = WalletRequest.fromSlice(in.body);
+    require(isSignatureValid(request.body.hash(), request.signature, storage.publicKey), 35);
+    require(request.seqno == storage.seqno, 33);
+
+    // Accept only after all checks pass
+    acceptExternalMessage();
+    setGasLimitToMaximum();
+
+    // Execute the actions
+    storage.seqno += 1;
+    for (action in request.actions) {
+        executeAction(action);
+    }
+
+    contract.setData(storage.toCell());
+}
+```

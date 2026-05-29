@@ -1,0 +1,210 @@
+---
+title: "acton library — on-chain TON library management"
+sidebarTitle: "library"
+description: "Publish Tolk contracts as reusable on-chain TON libraries, fetch their code, inspect storage runway, and top up their accounts."
+---
+
+`acton library` manages the lifecycle of TON on-chain libraries — shared code cells stored in a special library account that multiple contracts can reference by hash. Publishing a contract as a library avoids duplicating bytecode across deployments: contracts include a library reference cell instead of the full code, reducing deploy costs and making upgrades easier. Acton tracks published library metadata in `libraries.toml` (project-local) or `global.libraries.toml` (shared across projects), so you can inspect and top up libraries long after publication.
+
+## Synopsis
+
+```bash
+acton library <SUBCOMMAND> [OPTIONS]
+```
+
+## Subcommands
+
+| Subcommand | Description |
+|---|---|
+| `publish` | Compile and publish a contract as an on-chain library |
+| `fetch` | Download library code from the blockchain by hash |
+| `info` | Show metadata and storage runway for a tracked library |
+| `topup` | Send additional TON to a library account to extend storage |
+
+---
+
+### acton library publish
+
+Compile a project contract (or supply raw code) and publish it as a TON on-chain library. Acton calculates storage costs from the contract size and requested duration, prompts for confirmation, sends the publication transaction, and optionally saves the library metadata to a tracking file.
+
+**Synopsis**
+
+```bash
+acton library publish [CONTRACT_NAME] [OPTIONS]
+```
+
+**Options**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `CONTRACT_NAME` | string | prompted | Contract name from `Acton.toml` to publish |
+| `--code` | string (BoC) | — | Raw base64 or hex code to publish instead of compiling a contract |
+| `--duration` | string | prompted | Storage duration, e.g. `100d`, `1y`, `6m` |
+| `--wallet` | string | prompted | Wallet from `wallets.toml` to pay the transaction |
+| `--net` | string | `testnet` | Network: `testnet`, `mainnet`, `localnet`, or `custom:<name>` |
+| `--amount` | string | — | Explicit TON amount (overrides duration-based estimation) |
+| `--local` | flag | — | Save metadata to project-local `libraries.toml` |
+| `--global` | flag | — | Save metadata to `global.libraries.toml` |
+| `-y`, `--yes` | flag | — | Skip confirmation prompts |
+| `--tonconnect` | flag | — | Use a TON Connect wallet for the transaction |
+| `--tonconnect-port` | number | `52258` | Local port for the TON Connect approval page |
+
+<Note>
+  If neither `--local` nor `--global` is passed, Acton prompts for where to save the library metadata after a successful publication.
+</Note>
+
+---
+
+### acton library fetch
+
+Download a library's code cell from the blockchain by its hash. Useful for backup, inspection, or disassembly of any published library.
+
+**Synopsis**
+
+```bash
+acton library fetch <HASH> [OPTIONS]
+```
+
+**Options**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `HASH` | string | **required** | Library code hash to fetch |
+| `--disasm` | flag | — | Disassemble the fetched code and print TASM |
+| `-o`, `--output` | path | — | Write output to a file (`.boc` → binary, other → base64 text) |
+| `--net` | string | `testnet` | Network to query |
+| `--json` | flag | — | Emit JSON output (ignored when `--disasm` is also set) |
+
+**Output behavior:**
+- Without `--output`: fetched code is printed to stdout
+- `--output path.boc`: writes binary BoC
+- `--output path.txt`: writes base64 text
+- `--disasm`: always prints or writes TASM disassembly text
+
+---
+
+### acton library info
+
+Display stored metadata for a tracked library, including publication time, last top-up time, current balance, and estimated remaining storage runway.
+
+**Synopsis**
+
+```bash
+acton library info [NAME]
+```
+
+**Options**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `NAME` | string | prompted | Library name from `libraries.toml` or `global.libraries.toml` |
+
+---
+
+### acton library topup
+
+Send additional TON to a library's account to extend its storage lifetime. Acton updates `last_topup_timestamp` in the saved metadata after a successful top-up.
+
+**Synopsis**
+
+```bash
+acton library topup [LIBRARY_NAME] [OPTIONS]
+```
+
+**Options**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `LIBRARY_NAME` | string | prompted | Library name from metadata files |
+| `--duration` | string | prompted | Additional storage duration, e.g. `1y`, `100d` |
+| `--amount` | string | — | Explicit TON amount (overrides duration-based calculation) |
+| `--wallet` | string | prompted | Wallet to pay the top-up transaction |
+| `-y`, `--yes` | flag | — | Skip confirmation prompts |
+| `--tonconnect` | flag | — | Use a TON Connect wallet |
+| `--tonconnect-port` | number | `52258` | Local port for the TON Connect approval page |
+
+---
+
+## libraries.toml structure
+
+Saved library metadata lives in `libraries.toml` (project-local) or `global.libraries.toml`. A typical entry looks like this:
+
+```toml title="libraries.toml"
+[[libraries]]
+name = "Math"
+hash = "a1b2c3d4e5f6..."
+code = "te6cckEBAQEAAgAAAEysuc0="
+account = "EQA..."
+duration = "365d"
+network = "testnet"
+publication_timestamp = 1720000000
+last_topup_timestamp = 1720000000
+code_size_bits = 1024
+code_size_cells = 3
+```
+
+## Resolution rules
+
+- Library metadata is merged from `global.libraries.toml` first, then local `libraries.toml` — local entries win on name collisions.
+- When saving metadata into a file that already contains the same library name, Acton appends `-1`, `-2`, etc. to avoid overwriting the existing record.
+
+## Amount estimation
+
+For `publish` and `topup`, Acton estimates the required TON amount from the library's code size and requested storage duration. Pass `--amount` to override this estimate completely.
+
+## TON Connect
+
+Both `publish` and `topup` support `--tonconnect` for browser wallet approval. TON Connect is available only for `mainnet` and `testnet` — use configured Acton wallets for `localnet` and custom networks.
+
+## TonCenter API keys
+
+Built-in `mainnet`/`testnet` requests read `TONCENTER_MAINNET_API_KEY` or `TONCENTER_TESTNET_API_KEY`. For `custom:<name>`, Acton reads `<NORMALIZED_NAME>_API_KEY` (uppercased, non-alphanumeric → `_`). Acton loads `.env` automatically.
+
+## Examples
+
+<CodeGroup>
+
+```bash Publish a project contract as a library
+acton library publish Math --duration 365d --wallet deployer --local
+```
+
+```bash Publish arbitrary code as a library
+acton library publish --code "te6cckEBAQEAAgAAAEysuc0=" --duration 100d --wallet deployer
+```
+
+```bash Fetch and disassemble a library by hash
+acton library fetch a1b2c3d4e5f6... --disasm
+```
+
+```bash Save fetched library code to a BoC file
+acton library fetch a1b2c3d4e5f6... --output build/math-lib.boc --net mainnet
+```
+
+```bash Show library storage info
+acton library info Math
+```
+
+```bash Top up a library for one more year
+acton library topup Math --duration 1y --wallet deployer
+```
+
+```bash Publish to mainnet with TON Connect
+acton library publish Math --net mainnet --tonconnect
+```
+
+```bash Top up with TON Connect
+acton library topup Math --tonconnect
+```
+
+</CodeGroup>
+
+## Exit status
+
+- `0` — the selected library subcommand completed successfully
+- `1` — contract or wallet resolution failed, chain access failed, metadata could not be written, or a publish/top-up transaction failed
+
+## See Also
+
+- [Libraries guide](/guides/libraries)
+- [`acton wallet`](/commands/wallet) — configure wallets for library transactions
+- `acton disasm` (see [Command Reference](/commands/overview)) — disassemble fetched library code

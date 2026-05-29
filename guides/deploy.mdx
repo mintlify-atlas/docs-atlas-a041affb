@@ -1,0 +1,207 @@
+---
+title: "Deploying TON Smart Contracts with Acton Scripts"
+sidebarTitle: "Deploy"
+description: "Deploy Tolk contracts using scripts: deployment pattern, waitForFirstTransaction/waitForTrace, --net testnet/mainnet, TON Connect, and a complete deploy.tolk example."
+---
+
+Acton does not have a dedicated `acton deploy` command. Instead, contracts are deployed through Tolk scripts — the same `acton script` mechanism used for any blockchain interaction. This design keeps deployment logic explicit, version-controlled, and testable: you can run the exact same deployment script against a local emulator, testnet, or mainnet simply by changing a flag. The local emulator matches the Acton test environment, so deployment scripts are fully debuggable before touching any public network.
+
+## How deployment works
+
+A deployment script is a regular Tolk script that:
+
+1. Loads a deployer wallet via `scripts.wallet()`.
+2. Constructs the contract's initial state using the generated wrapper's `fromStorage()`.
+3. Sends the deployment transaction via the wrapper's `.deploy()` method.
+4. Waits for confirmation using `.waitForFirstTransaction()` or `.waitForTrace()`.
+
+The same four steps work in local emulation and on the real network — only the runtime destination changes.
+
+## Prerequisites
+
+- A built Acton project with a Tolk contract wrapper (`acton wrapper <CONTRACT>`) and a deployment script under `scripts/`.
+- A [configured deployer wallet](/guides/wallets) with sufficient TON for testnet or mainnet deployments.
+- Alternatively, pass `--tonconnect` to connect an external wallet via TON Connect.
+
+<Warning title="Real funds move on public networks">
+  Local runs stay in the emulator. Testnet and mainnet runs send real external messages from the configured wallet or the connected TON Connect wallet.
+
+  Use separate wallets for different networks. Validate the deployment script locally before broadcasting, and treat mainnet deployment as irreversible.
+</Warning>
+
+## Deployment script pattern
+
+### Minimal Counter deployment
+
+```tolk title="scripts/deploy.tolk"
+import "@acton/io"
+import "@acton/emulation/network"
+import "@acton/emulation/scripts"
+import "@acton/build"
+import "@acton/prompts"
+import "@acton/testing/assert"
+
+import "@wrappers/Counter.gen"
+import "@contracts/types"
+
+fun main() {
+    val deployer = scripts.wallet(promptWallet("Select a wallet:"));
+
+    val counter = Counter.fromStorage({
+        owner: deployer.address,
+        id: 123,
+        counter: 0,
+    });
+
+    println("Deploying counter to {}", counter.address);
+
+    val result = counter.deploy(deployer.address, { value: ton("0.05") });
+    val trace = result.waitForTrace();
+    if (trace == null) {
+        Assert.fail("Could not find the trace, deployment has failed!");
+    }
+
+    println("Deployment complete: {}", counter.address);
+    println("On-chain counter is {}", counter.currentCounter());
+    println(trace);
+}
+```
+
+### Jetton minter deployment
+
+More complex deployments prepare additional data — metadata cells, child contract code — before calling the wrapper:
+
+```tolk title="scripts/deploy.tolk"
+import "@acton/emulation/scripts"
+import "@acton/build"
+import "@acton/prompts"
+import "@acton/testing/assert"
+
+import "@wrappers/JettonMinter.gen"
+import "@contracts/types"
+
+fun main() {
+    val deployer = scripts.wallet(promptWallet("Select a wallet:"));
+
+    val content = buildOnchainMetadata({
+        name: "ActonJetton",
+        symbol: "ACTON",
+        description: "It is time to act on TON!",
+        image: "https://ton-blockchain.github.io/acton/logo.png",
+    });
+
+    val minter = JettonMinter.fromStorage({
+        totalSupply: 1_000_000_000,
+        adminAddress: deployer.address,
+        content: content,
+        jettonWalletCode: build("JettonWallet"),
+    });
+
+    val trace = minter.deploy(deployer.address, { value: ton("0.05") }).waitForTrace();
+    if (trace == null) {
+        Assert.fail("Could not find the trace, deployment has failed!");
+    }
+
+    println("Jetton deployed at {}", minter.address);
+}
+```
+
+## Waiting for confirmation
+
+<CardGroup cols={2}>
+  <Card title="waitForFirstTransaction()" icon="clock">
+    Polls until the first transaction from the result list is confirmed on-chain. Returns `null` if Acton cannot find it within the retry budget.
+  </Card>
+  <Card title="waitForTrace()" icon="list-tree">
+    Waits for the complete descendant transaction chain to form. Returns `null` on timeout. Use this when post-deploy getters depend on child transactions completing.
+  </Card>
+</CardGroup>
+
+In local emulation, both helpers return immediately because transactions are instantaneous. In broadcast mode, they poll the TON Center API.
+
+```tolk
+val result = counter.deploy(deployer.address, { value: ton("0.05") });
+
+// Option A: wait for just the root transaction
+val tx = result.waitForFirstTransaction();
+if (tx != null) {
+    println("Root transaction confirmed");
+}
+
+// Option B: wait for the full trace
+val trace = result.waitForTrace();
+if (trace == null) {
+    Assert.fail("Deployment trace not found — timed out");
+}
+println(trace);
+```
+
+## Running the deployment
+
+<Steps>
+  <Step title="Test locally">
+    ```bash
+    acton script scripts/deploy.tolk
+    ```
+
+    The local emulator runs instantaneously. Check that address derivation, initial state, and post-deploy getters behave as expected.
+  </Step>
+  <Step title="Deploy to testnet">
+    ```bash
+    acton script scripts/deploy.tolk --net testnet
+    ```
+
+    In broadcast mode, `scripts.wallet()` resolves the named wallet from `wallets.toml` or `global.wallets.toml`. Select the funded testnet wallet when `promptWallet()` prompts.
+  </Step>
+  <Step title="Deploy to mainnet">
+    ```bash
+    acton script scripts/deploy.tolk --net mainnet
+    ```
+
+    Run only after the same script has succeeded locally and on testnet. Confirm the deployer wallet, deployment value, and initialization data before sending.
+  </Step>
+</Steps>
+
+## TON Connect
+
+Pass `--tonconnect` to use an external wallet via the TON Connect protocol instead of a locally configured wallet:
+
+```bash
+acton script scripts/deploy.tolk --net testnet --tonconnect
+acton script scripts/deploy.tolk --net mainnet --tonconnect
+```
+
+When `--tonconnect` is active, `promptWallet()` returns `"tonconnect"`, and `scripts.wallet("tonconnect")` resolves to the connected wallet address. Acton displays a QR code or deep link for the wallet app to scan.
+
+## Emulator vs live broadcast comparison
+
+| Aspect | Local (no `--net`) | Testnet / Mainnet (`--net`) |
+|---|---|---|
+| Blockchain | Local TVM emulator | Real TON network |
+| Wallets | Virtual treasury (10,000 TON) | Configured real wallets or TON Connect |
+| TON spent | None | Real Toncoin |
+| Transaction speed | Instant | Real network timing (seconds) |
+| State persistence | Lost after script ends | Permanent on blockchain |
+| API calls | None | TON Center API (set key in `.env`) |
+
+## API rate limits
+
+Testnet and mainnet deployments call the TON Center API to send external messages, poll transaction status, and read chain state. Without an API key, access is limited to 1 RPS.
+
+```bash
+# .env
+TONCENTER_TESTNET_API_KEY="your-testnet-key-here"
+TONCENTER_MAINNET_API_KEY="your-mainnet-key-here"
+```
+
+Obtain a key from the [`@toncenter`](https://t.me/toncenter) Telegram bot.
+
+## Post-deploy getter calls
+
+After a successful deployment, call wrapper getter methods directly to verify on-chain state. In broadcast mode, getters automatically read from the broadcast network — no separate `--fork-net` flag is needed:
+
+```tolk
+println("On-chain counter is {}", counter.currentCounter());
+```
+
+In local emulation mode, getters read from the emulator state, which reflects the just-deployed contract.

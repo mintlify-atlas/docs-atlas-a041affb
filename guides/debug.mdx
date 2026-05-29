@@ -1,0 +1,208 @@
+---
+title: "Debugging Tolk Contracts with Acton's DAP Debugger"
+sidebarTitle: "Debug"
+description: "Set breakpoints in Tolk, step through contract execution, inspect TVM registers and locals using acton test --debug or acton script --debug and the DAP protocol."
+---
+
+Acton's source-level debugger lets you pause Tolk contract execution at any line, inspect local variables and TVM registers in structured form, evaluate expressions, and step through message handler logic — all from a standard editor. The debugger speaks the [Debug Adapter Protocol (DAP)](https://microsoft.github.io/debug-adapter-protocol/), so it integrates with VS Code, JetBrains, and any other DAP-capable client without requiring a special debug build or modified contract code.
+
+## Debugging tools at a glance
+
+Choose the right tool for your question before reaching for the full debugger:
+
+| Question | Best tool |
+|:---------|:----------|
+| Print a value from a test or script | `println(...)` |
+| Print a value from VM-executed contract code | `debug.print<T>(x)` |
+| Inspect a transaction tree quickly | `println(txs)` or matcher output |
+| Get source locations without a live debugger | `acton test --backtrace full` |
+| Set breakpoints and step through code | `acton test --debug` or `acton script --debug` |
+| Debug a real historical on-chain transaction | `acton retrace <HASH> --contract <NAME> --debug` |
+
+<Tip>
+  Treat Acton's debugging options as a ladder. Start with `println(...)` or terminal traces, add `--backtrace full` when source locations are needed, then switch to `--debug` only for interactive stepping.
+</Tip>
+
+## Starting a debug session
+
+The `--debug` flag is available on three commands:
+
+```bash
+# Debug a single test (narrow with --filter for speed)
+acton test tests/counter.test.tolk --filter "deploy" --debug
+
+# Debug a script
+acton script scripts/deploy.tolk --debug
+
+# Debug a historical on-chain transaction
+acton retrace <HASH> --contract Counter --debug --debug-port 4711
+```
+
+Acton prints a message when the debug server is ready, then waits for an editor to attach before execution begins.
+
+### Choosing a port
+
+The default debug port is `4711`. Override it with `--debug-port`:
+
+```bash
+acton test tests/counter.test.tolk --debug --debug-port 4711
+```
+
+Use different ports when running multiple debug sessions simultaneously.
+
+## Connecting from VS Code
+
+<Steps>
+
+### Install the TON extension
+
+Install the [TON extension for VS Code](https://marketplace.visualstudio.com/items?itemName=ton-core.vscode-ton) from the marketplace. The extension registers the `tolk` debug adapter type automatically.
+
+### Add a launch configuration
+
+Create or open `.vscode/launch.json` and add:
+
+```json title=".vscode/launch.json"
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "tolk",
+      "request": "launch",
+      "name": "Attach to Acton",
+      "debugServer": 4711
+    }
+  ]
+}
+```
+
+### Start the Acton debug server
+
+Run the command you want to debug in a terminal:
+
+```bash
+acton test tests/counter.test.tolk --filter "deploy" --debug --debug-port 4711
+```
+
+### Attach from VS Code
+
+Press **F5** or select **Run → Start Debugging** with the "Attach to Acton" configuration selected. VS Code connects to the debug server, and execution pauses at the first breakpoint.
+
+</Steps>
+
+## Connecting from JetBrains
+
+The [TON plugin for JetBrains IDEs](https://plugins.jetbrains.com/plugin/23382-ton) integrates the Acton debugger into the native test runner. You can start a debug session directly from the gutter icon next to a test function or from a Run Configuration — no manual `launch.json` required. See the [IDE support guide](/guides/ide-support) for full setup instructions.
+
+## Setting breakpoints
+
+Set breakpoints directly in `.tolk` source files in your editor. Acton maps source locations to VM execution points using compiler-produced source maps; no debug build flag or separate contract variant is needed.
+
+<Note>
+  Breakpoint locations may slide to the next stoppable line if the exact line has no corresponding VM instruction. The editor shows the resolved location as verified once Acton confirms the breakpoint.
+</Note>
+
+## Debugger capabilities
+
+The current DAP implementation supports:
+
+<CardGroup cols={2}>
+  <Card title="Stepping controls" icon="forward">
+    Continue, step over, step into, step out, and instruction-level stepping when the client requests instruction granularity.
+  </Card>
+  <Card title="Stack traces" icon="list">
+    Full source-level stack traces including cross-contract boundaries for live debug sessions.
+  </Card>
+  <Card title="Variables inspection" icon="eye">
+    Locals with structured expansion for tuples, maps, arrays, structs, addresses, cells, and union types.
+  </Card>
+  <Card title="TVM Registers" icon="cpu">
+    Live sessions expose a `Registers` scope with `c4 (storage)`, `c5 (output actions)`, and `c7 (temporary data)` in contract-aware readable form.
+  </Card>
+  <Card title="Conditional breakpoints" icon="code-branch">
+    Breakpoints with condition expressions. Conditions are fail-loud: evaluation failures stop execution and report the error rather than silently passing.
+  </Card>
+  <Card title="Expression evaluation" icon="terminal">
+    Watches, hovers, and debug-console evaluation for a safe side-effect-free subset of Tolk expressions.
+  </Card>
+</CardGroup>
+
+### Exception break filters
+
+The debugger supports two exception break filters:
+- **Uncaught Exceptions** — break when an unhandled exception propagates.
+- **All Exceptions** — break on every throw, including caught ones.
+
+### Expression evaluation scope
+
+Hover, watch, and debug-console evaluation support:
+
+- Local variables (including shadowed locals from the selected frame)
+- Backticked identifiers
+- Field access (`foo.bar`) and dot-based numeric indexing (`foo.items.0`)
+- Parentheses and boolean/string/integer/`null` literals
+- Unary `!` and `-`
+- `&&`, `||`, and comparison operators (`==`, `!=`, `<`, `<=`, `>`, `>=`)
+- Typed cell casts: `someCell as Cell<Foo>` or `someSlice as Cell<Foo>` decoded from the current frame's source map
+
+Function calls, arbitrary arithmetic, mutating expressions, and general type casts are not supported.
+
+<Warning>
+  `evaluate` is an inspection feature, not a full Tolk REPL. Some comparison behaviour is renderer-driven rather than language-accurate execution semantics. Use it for watches, hovers, and conditional breakpoints — not to validate complex logic end to end.
+</Warning>
+
+## Live vs replay sessions
+
+| Feature | `--debug` (live) | `retrace --debug` (replay) |
+|:--------|:-----------------|:---------------------------|
+| Source stepping | ✅ | ✅ (requires `--contract`) |
+| TVM Registers scope | ✅ | ✗ |
+| Cross-contract stepping | ✅ | ✗ |
+| Matches real on-chain context | ✗ | ✅ |
+
+`acton retrace --debug` is stricter than live debugging: it requires `--contract`, a local `.tolk` contract, compiler-produced source maps, and a matching local/on-chain code hash.
+
+## Backtraces without a live debugger
+
+When you need source locations and call paths but not interactive stepping, use `--backtrace full`:
+
+```bash
+acton test --backtrace full
+acton script scripts/deploy.tolk --backtrace full
+```
+
+This is the middle layer: cheaper than a full debug session, but richer than plain console output. Use it when:
+
+- The compute phase fails and you need the exact source location.
+- The action phase fails and Acton instructs you to rerun with a backtrace.
+- A matcher failure produced the right transaction tree but insufficient source context.
+
+<Warning>
+  `--backtrace full` is noticeably slower than a standard run because Acton compiles with richer debug metadata and keeps verbose execution data. Do not set it as the default for large test suites — narrow the run with `--filter` when investigating a specific failure.
+</Warning>
+
+## Contract debug output
+
+Use `debug.print*` inside VM-executed contract code and `println(...)` in tests and scripts:
+
+```tolk
+// Inside contract code (VM-executed)
+debug.print<int>(myCounter);       // prints to VM logs
+debug.printString("reached here"); // prints string to VM logs
+debug.dumpStack();                  // dumps the TVM stack
+```
+
+```tolk
+// Inside tests and scripts (host-side)
+println(txs);           // prints transaction tree
+println(deployResult);  // prints deploy result
+```
+
+VM debug lines (prefixed `#DEBUG#:`) appear in executor logs when running with `--verbose`, or in transaction details in Test UI and saved traces.
+
+## Practical tips
+
+- `acton test --debug` is best suited to a single narrowed test. Use `--filter` to avoid stepping through an entire suite.
+- `acton script --debug` debugs the local execution path; it does not provide source-level stepping inside a real on-chain broadcast after the script hands control to the network.
+- When stepping into helpers such as `net.send*` or `net.runGetMethod()`, Acton can splice the child execution into the same logical debug session so you do not need to start a separate debugger manually.
+- Some internal runtime glue in `emulation/network.tolk` is treated as transparent during step-into, so Acton may skip over it to land on a more useful stop point.

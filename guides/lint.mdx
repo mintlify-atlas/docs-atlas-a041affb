@@ -1,0 +1,249 @@
+---
+title: "Linting Tolk Contracts with acton check"
+sidebarTitle: "Lint"
+description: "Run acton check to catch compiler errors and lint diagnostics in Tolk contracts, apply auto-fixes, configure rules, and integrate lint reports into CI pipelines."
+---
+
+`acton check` is Acton's built-in linter for Tolk smart contracts. It analyses every file reachable from the declared contract roots, test files, and standalone scripts, then reports diagnostics ranging from simple style suggestions to security-critical findings. The command integrates with CI through multiple machine-readable output formats, supports automatic safe fixes, and lets you tune rule severity at the project or per-contract level without touching source files.
+
+## Running the linter
+
+<Steps>
+
+### Lint the whole project
+
+Run `acton check` from the project root to check every lint root discovered from `Acton.toml`:
+
+```bash
+acton check
+```
+
+Acton scans:
+- Every contract declared in `[contracts]`;
+- Every `*.test.tolk` file in the workspace;
+- Every standalone script file that defines a `main()` function.
+
+### Lint a single contract or file
+
+Pass a contract name (as declared in `Acton.toml`) or a direct file path:
+
+```bash
+# By contract name
+acton check Counter
+
+# By file path
+acton check ./contracts/Counter.tolk
+```
+
+<Tip>
+  Prefer an explicit path such as `./contracts/Counter.tolk` when a file name could be mistaken for a contract name defined in `Acton.toml`.
+</Tip>
+
+### Apply automatic fixes
+
+Rewrite fixable issues in place with `--fix`:
+
+```bash
+acton check --fix
+```
+
+`--fix` works only with the default plain terminal output. It applies only fixes that the linter marks as automatically applicable. The command can still exit with a non-zero status when unfixed diagnostics remain.
+
+</Steps>
+
+## Focused runs
+
+Explain a diagnostic code directly in the terminal:
+
+```bash
+acton check --explain E002
+```
+
+Run only a selected subset of rules during one pass:
+
+```bash
+acton check --enable-only E003,E028
+```
+
+Use full rule codes such as `E003` or `E028` for predictable matching.
+
+## Output formats
+
+<Tabs>
+  <Tab title="Plain (default)">
+    ```bash
+    acton check
+    ```
+    Human-readable output with source locations, suitable for local development. The only format that supports `--fix`.
+  </Tab>
+  <Tab title="JSON">
+    ```bash
+    acton check --output-format json
+    ```
+    Structured JSON object with `success` boolean and a `diagnostics` array. Each entry includes `file`, `severity`, `name`, `message`, `annotations` with 0-based ranges, and `fixes`. Use for editor integrations and custom tooling.
+  </Tab>
+  <Tab title="SARIF">
+    ```bash
+    acton check --output-format sarif --output-file build/reports/lint.sarif
+    ```
+    Static Analysis Results Interchange Format. Includes `SRCROOT`-relative artifact locations, per-rule metadata such as `helpUri` and fixability, and structured fixes. Upload to GitHub Code Scanning or any SARIF consumer.
+  </Tab>
+  <Tab title="GitHub">
+    ```bash
+    acton check --output-format github
+    ```
+    Emits [GitHub workflow commands](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions) that create annotations directly in the GitHub Actions log and pull-request checks. No SARIF upload required.
+  </Tab>
+  <Tab title="GitLab">
+    ```bash
+    acton check --output-format gitlab --output-file gl-code-quality-report.json
+    ```
+    Writes a GitLab Code Quality report in Code Climate format. Reference the file as a `codequality` artifact in `.gitlab-ci.yml` to show findings in merge requests.
+  </Tab>
+</Tabs>
+
+<Warning>
+  `--fix` can only be used with the plain output format. Passing `--fix` alongside `json`, `sarif`, `github`, or `gitlab` causes Acton to exit with an error instead of rewriting files.
+</Warning>
+
+## Configuring rules in Acton.toml
+
+Store the project lint policy in `Acton.toml`. Use `[lint]` for global settings, `[lint.rules]` for project-wide rule levels, and `[lint.rules.<ContractName>]` for per-contract overrides.
+
+```toml title="Acton.toml"
+[lint]
+max-warnings = 0
+exclude = ["contracts/generated/*.tolk"]
+output-format = "sarif"
+
+[lint.rules]
+unused-variable = "deny"
+mutable-variable-can-be-immutable = "warn"
+
+[lint.rules.Counter]
+unused-variable = "allow"
+```
+
+### Rule levels
+
+| Level | Effect |
+|:------|:-------|
+| `allow` | Disables the rule entirely. |
+| `warn` | Reports as a warning (default for most rules). |
+| `deny` | Reports as an error; causes non-zero exit. |
+
+### Exclude patterns
+
+`exclude` accepts glob patterns matched against both project-root-relative and absolute paths:
+
+- Excluded contracts are skipped as lint roots in project-wide runs.
+- Explicit targets (`acton check Counter`) are still checked even if excluded.
+- Excluded dependency files are still parsed for imports and types, but their lint diagnostics are hidden.
+- Compiler errors are never hidden by `exclude`.
+
+## Per-line suppression
+
+When only a single line needs an exception, suppress the rule inline rather than weakening the project policy:
+
+```tolk
+// check-disable-next-line unused-variable
+val legacy = oldLogic();
+```
+
+Suppress multiple rules at once:
+
+```tolk
+// check-disable-next-line unused-variable, write-only-variable
+var tmp = 10;
+tmp = 20;
+```
+
+Suppression rules:
+- Use rule names (`unused-variable`) not diagnostic codes (`E001`).
+- The comment applies only to the immediately following line.
+- The comment must use `//` and sit directly above the target line.
+- `all` suppresses every diagnostic for the next line.
+- Unknown rule names in the list are silently ignored.
+- `compiler-error` (`C001`) and `parse-error` cannot be suppressed.
+
+## Built-in rules
+
+Acton ships with the following rules. Rules marked **Preview** are still stabilising; rules disabled by default require explicit opt-in via `[lint.rules]` or `--enable-only`.
+
+### Error rules (E-prefix)
+
+| Code | Rule name | Default | Quick fix | Description |
+|:-----|:----------|:--------|:----------|:------------|
+| E001 | `unused-variable` | warn | ✅ always | Declared variables or parameters that are never used. |
+| E002 | `mutable-variable-can-be-immutable` | warn | ✅ sometimes | `var` declarations that are never mutated. |
+| E003 | `deprecated-symbol-use` | warn | ✗ | Usage of deprecated symbols. |
+| E004 | `write-only-variable` | warn | ✗ | Variables that are written to but never read. |
+| E005 | `unused-import` | warn | ✅ sometimes | Imports that are never referenced in the file. |
+| E006 | `pure-function-call-unused` | warn | ✗ | `@pure` function calls whose return value is discarded. |
+| E007 | `no-bounce-handler` | warn | ✗ | Bouncing messages sent from `onInternalMessage` without a declared `onBouncedMessage` handler. |
+| E008 | `used-ignored-identifier` | warn | ✅ always | Use of identifiers explicitly marked unused with a leading underscore. |
+| E009 | `mutable-parameter-can-be-immutable` | warn | ✅ always | `mutate` parameters that are never mutated. |
+| E010 | `acton-import-in-contract` | error | ✗ | Importing `.acton` files from within a contract dependency tree. |
+| E011 | `asm-function-missing-safety-comment` | warn | ✗ | `asm` function declarations without a `SAFETY` comment. |
+| E012 | `send-mode-literal` | warn | ✅ sometimes | Send mode passed as a numeric literal instead of `SEND_MODE_*` constants. |
+| E013 | `unauthorized-access` | allow *(Preview)* | ✗ | Storage mutations reachable without an admin sender check. |
+| E014 | `several-not-null-assertions` | warn | ✅ always | Repeated not-null assertions such as `foo!!`. |
+| E015 | `reserve-mode-literal` | warn | ✅ sometimes | Reserve mode passed as a numeric literal instead of `RESERVE_MODE_*` constants. |
+| E016 | `dangerous-send-mode-missing-safety-comment` | warn | ✗ | Dangerous send-mode flags used without a `SAFETY` comment. |
+| E017 | `bless-call-missing-safety-comment` | warn | ✗ | Calls to `transformSliceToContinuation` or `asm` `BLESS` functions without a `SAFETY` comment. |
+| E018 | `random-requires-initialization` | warn *(Preview)* | ✗ | Random value generation without a preceding random-seed initialisation. |
+| E019 | `divide-before-multiply` | warn *(Preview)* | ✗ | Division evaluated before multiplication, risking precision loss. |
+| E020 | `duplicated-condition` | warn | ✗ | Duplicated conditions in `if / else if` chains. |
+| E021 | `identical-conditional-branches` | warn | ✗ | Conditional branches that are structurally identical. |
+| E022 | `no-global-variables` | warn | ✗ | Top-level `global` variable declarations. |
+| E024 | `enum-cast-missing-safety-comment` | warn | ✗ | Non-literal `as` casts to enum types without a `SAFETY` comment. |
+| E025 | `missing-contract-header` | warn | ✗ | Contract source with standard entrypoints but no `contract` header. |
+| E026 | `unused-expression` | warn | ✗ | Expression statements whose computed values are immediately discarded. |
+| E027 | `dict-type-use` | warn | ✗ | Use of the low-level `dict` type. |
+| E028 | `throw-requires-errors-enum` | warn | ✗ | Throw codes referenced as bare constants instead of an errors enum. |
+| E029 | `create-message-body-to-cell` | warn | ✗ | `MyMessage { ... }.toCell()` inside a `createMessage({ body: ... })` initializer. |
+| E030 | `throw-requires-documented-error-value` | allow *(Preview)* | ✗ | Throw codes from enum values that lack documentation. |
+
+### Style rules (S-prefix)
+
+| Code | Rule name | Default | Quick fix | Description |
+|:-----|:----------|:--------|:----------|:------------|
+| S001 | `name-case-checker` | warn | ✅ always | Inconsistent identifier naming style. |
+| S002 | `explicit-return-type` | warn | ✅ sometimes | Function declarations without explicit return types. |
+| S003 | `field-init-can-be-folded` | warn | ✅ always | Struct field initialisation where the field name matches the variable name. |
+| S004 | `method-can-be-static` | warn | ✗ | Instance methods where `self` is unused. |
+| S005 | `message-should-be-named` | warn | ✗ | Messages created with `createMessage(...)` but named `msg` or `message`. |
+| S006 | `create-message-inline-send` | warn | ✗ | Inline sending of newly created messages: `createMessage(...).send(...)`. |
+| S007 | `import-path-can-use-mappings` | warn | ✅ sometimes | Relative import paths that could use a configured `@mapping/...` alias. |
+| S008 | `negated-is-type-can-use-not-is` | warn | ✅ always | Negated type checks written as `!(a is T)`. |
+
+### Compiler rule (C-prefix)
+
+| Code | Rule name | Description |
+|:-----|:----------|:------------|
+| C001 | `compiler-error` | Reports compiler and parse errors. Cannot be suppressed or overridden. |
+
+## CI integration
+
+Set `max-warnings = 0` in `Acton.toml` to fail CI on any warning, then choose the output format that matches your platform:
+
+```toml title="Acton.toml"
+[lint]
+max-warnings = 0
+```
+
+```bash
+# Plain terminal output (local)
+acton check
+
+# GitHub Actions annotations
+acton check --output-format github
+
+# SARIF for code scanning upload
+acton check --output-format sarif --output-file build/reports/lint.sarif
+
+# GitLab Code Quality report
+acton check --output-format gitlab --output-file gl-code-quality-report.json
+```
+
+For a complete GitHub Actions workflow example, see the [CI setup guide](/guides/ci-setup).

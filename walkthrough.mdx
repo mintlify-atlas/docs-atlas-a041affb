@@ -1,0 +1,479 @@
+---
+title: "Walkthrough: Full Acton Development Cycle"
+sidebarTitle: "Walkthrough"
+description: "Build, format, lint, test with coverage and mutation analysis, set up a wallet, deploy to TON testnet, and verify source — end to end with Acton."
+---
+
+This guide walks through every major Acton feature in a single project. Starting from the built-in `counter` template, you will compile the contract, format and lint the sources, run the test suite with coverage and mutation analysis, debug a failing test, deploy to testnet using a funded wallet, and verify the deployed bytecode. Each section can be read independently if you have already completed earlier steps.
+
+<Note>
+  Finished the [quickstart](/quickstart)? Skip the project creation step — your `first_counter` directory is already set up. Jump straight to [Build the contract](#build-the-contract).
+</Note>
+
+## Prerequisites
+
+- Acton installed and on your `PATH` — see [Installation](/installation).
+- Node.js 22 or later LTS — required for the TypeScript app scaffold.
+- Optional: the [TON VS Code extension](https://marketplace.visualstudio.com/items?itemName=toncore.ton) or [TON JetBrains plugin](https://plugins.jetbrains.com/plugin/23382-ton) for IDE integration.
+
+## Initialize a new project
+
+If you have not already created a project, do so now:
+
+```bash
+acton new first_counter --template counter --app
+cd first_counter
+npm ci
+```
+
+The project layout places Tolk sources under `contracts/src/`, tests under `contracts/tests/`, and deployment scripts under `contracts/scripts/`. Generated TypeScript wrappers live in `wrappers-ts/`, and the React frontend lives in `app/`.
+
+<Tip>
+  Pass `--hooks` to install pre-commit checks automatically, or `--agents` to include an `AGENTS.md` file with coding-agent guidance. Run `acton new` without arguments for an interactive prompt.
+</Tip>
+
+## Build the contract
+
+<Steps>
+  <Step title="Compile all contracts">
+    `acton build` compiles every contract configured in `Acton.toml` and writes JSON build artifacts to `build/`:
+
+    ```bash
+    acton build
+    ```
+
+    ```
+    Compiling contracts
+    Compiling Counter
+     Finished in 4.8ms
+     Finished in 728.8µs
+    ```
+
+    Each compiled contract produces a JSON artifact containing the code BoC and its hash:
+
+    ```json title="build/Counter.json"
+    {
+      "code_boc64": "te6ccgEBBwEA1gABFP8A9KQT9Lzy...",
+      "hash": "15407004A66E0CF95A67C39EDBB54A531DFDB6DF93FB7D365FAE57A34B874747"
+    }
+    ```
+  </Step>
+  <Step title="Build a single contract">
+    Pass a contract name to compile only that target:
+
+    ```bash
+    acton build Counter
+    ```
+  </Step>
+  <Step title="Print artifact details">
+    Pass `--info` to print the resolved code and hash after compilation:
+
+    ```bash
+    acton build --info
+    ```
+
+    ```
+    Compiling contracts
+     Finished in 2.7ms
+
+    Artifacts of Counter
+         Code te6ccgEBBwEA1gABFP8A9KQT9LzyyAs...
+         Hash 0x15407004A66E0CF95A67C39EDBB54A531DFDB6DF93FB7D365FAE57A34B874747
+    ```
+  </Step>
+</Steps>
+
+## Format Tolk files
+
+`acton fmt` formats all `.tolk` files under the project root using the built-in Tolk formatter:
+
+```bash
+acton fmt
+```
+
+Run in check mode to detect violations without rewriting files — useful in CI:
+
+```bash
+acton fmt --check
+```
+
+When a file is not formatted correctly, `--check` prints a unified diff and exits with a non-zero status:
+
+```
+Diff in contracts/src/Counter.tolk:
+-fun onInternalMessage(in:InMessage){
+-val x=1;
++fun onInternalMessage(in: InMessage) {
++    val x = 1;
+     val y = 2;
+ }
+```
+
+Format a single file or directory:
+
+```bash
+acton fmt contracts/src/Counter.tolk
+```
+
+## Lint contracts
+
+`acton check` runs the Tolk linter with 25+ rules across the whole project:
+
+```bash
+acton check
+```
+
+On a clean project it exits with status 0:
+
+```
+Checking Counter
+Checking contracts/scripts/deploy.tolk
+Checking contracts/tests/counter.test.tolk
+```
+
+When issues are found, the output includes rule codes, source locations, and fix hints:
+
+```
+warning[E001]: variable `x` is unused
+  --> contracts/src/Counter.tolk:12:9
+   |
+12 |     val x = 1;
+   |         ^ help: prefix with `_` to silence
+
+1 issue can be fixed automatically, rerun with --fix flag.
+```
+
+Apply auto-fixes with `--fix`, or look up any rule code with `--explain`:
+
+```bash
+acton check --fix
+acton check --explain E001
+```
+
+## Regenerate wrappers
+
+Wrappers are auto-generated from the contract ABI. Regenerate them whenever the contract interface changes and commit them alongside sources.
+
+<CodeGroup>
+```bash Tolk wrappers (for tests and scripts)
+acton wrapper --all
+```
+
+```bash TypeScript wrappers (for the dApp)
+acton wrapper Counter --ts
+```
+</CodeGroup>
+
+The Tolk wrapper goes to `contracts/wrappers/Counter.gen.tolk`; the TypeScript wrapper goes to `wrappers-ts/Counter.gen.ts`.
+
+## Test the contract
+
+<Steps>
+  <Step title="Run the full test suite">
+    `acton test` discovers and runs all `*.test.tolk` files:
+
+    ```bash
+    acton test
+    ```
+
+    ```
+    TEST  first_counter
+
+    > contracts/tests/counter.test.tolk (8 tests)
+     ✓ deploy exposes initial owner 4ms
+     ✓ increase counter 4ms
+     ✓ reset counter 3ms
+     ✓ decrease counter 4ms
+     ✓ decrease counter fails on underflow 3ms
+     ✓ decrease counter fails on overflow 3ms
+     ✓ non-owner cannot change counter 3ms
+     ✓ unknown message 2ms
+
+    ✓ 8 passed in 1 file
+    ```
+
+    Useful flags:
+
+    | Flag | Purpose |
+    |---|---|
+    | `--filter <regex>` | Run only tests whose name matches the pattern |
+    | `--fail-fast` | Stop after the first failure |
+    | `--save-test-trace` | Write TVM execution traces to `build/traces/` |
+  </Step>
+  <Step title="Collect coverage">
+    Pass `--coverage` to measure line and branch coverage and print a summary after the run:
+
+    ```bash
+    acton test --coverage
+    ```
+
+    Enforce a minimum threshold in CI:
+
+    ```bash
+    acton test --coverage --coverage-minimum-percent 80
+    ```
+  </Step>
+  <Step title="Inspect results in the browser UI">
+    Pass `--ui` to open the interactive Test UI. Combine with `--coverage` to browse annotated source files in the Coverage tab:
+
+    ```bash
+    acton test --ui --coverage
+    ```
+
+    The Test UI lets you filter tests, inspect TVM execution traces, view decoded message bodies, and navigate annotated source coverage — all in the browser.
+  </Step>
+  <Step title="Run mutation testing">
+    Coverage shows which lines executed — not whether tests would catch a bug on those lines. Mutation testing fills that gap by making small deliberate changes to the contract (for example, replacing `+=` with `-=`) and re-running the suite. Tests that still pass against a mutation reveal untested behaviour.
+
+    ```bash
+    acton test --mutate --mutate-contract Counter
+    ```
+
+    ```
+    Mutation Testing
+    ────────────────────────────────────────────────────────────
+    Session:  ace2c3aae5a827a2
+    Contract: Counter
+    Files:    1
+    Mutants:  6
+
+      ◉ Mutation 1/6 contracts/src/Counter.tolk:18 Replace == with != KILLED
+      ◉ Mutation 2/6 contracts/src/Counter.tolk:22 Replace `+=` with `-=` KILLED
+      ◉ Mutation 3/6 contracts/src/Counter.tolk:27 Replace >= with > SURVIVED
+      ◉ Mutation 4/6 contracts/src/Counter.tolk:28 Replace `true` with `false` KILLED
+      ◉ Mutation 5/6 contracts/src/Counter.tolk:30 Remove assert statements KILLED
+      ◉ Mutation 6/6 contracts/src/Counter.tolk:33 Remove throw keyword KILLED
+
+        Total mutants        6
+      ✓ Killed               5
+      ✗ Survived             1
+
+      ◆ Mutation Score       83.3%
+    ```
+
+    Each surviving mutation shows the exact line, rule, and diff. Add a test that exercises the corresponding path and rerun — the mutation will be killed on the next run.
+
+    <Tip>
+      Use `--mutation-diff branch` in CI to restrict mutations to lines changed since the merge base, skipping re-testing of stable code.
+    </Tip>
+  </Step>
+</Steps>
+
+## Debug the contract
+
+### Exception tracing
+
+Pass `--backtrace full` to get source locations for a failure without stepping through the code:
+
+```bash
+acton test --backtrace full
+```
+
+When a test fails, Acton prints source locations for each frame:
+
+```
+✗ increase counter 12ms
+  └─ Error: expect(actual).toHaveSuccessfulTx(expected)
+      N/A -> deployer A
+      └── IncreaseCounter 0.1 TON -> Counter B   gas=1513 exit_code=10 aborted
+          ├── Compute phase failed: Dictionary error
+          └── at contracts/src/Counter.tolk:42
+                 onInternalMessage   at contracts/src/Counter.tolk:18
+```
+
+### Source-level DAP debugger
+
+For deeper investigation, Acton ships a source-level debugger using the [Debug Adapter Protocol (DAP)](https://microsoft.github.io/debug-adapter-protocol/). It provides stepping (over, into, out), breakpoints, variable inspection, and exception breaks — running the same contract code as production with no separate debug build.
+
+The `--debug` flag is available on three commands:
+
+| Command | What gets debugged |
+|---|---|
+| `acton test [path] --debug` | A live local test session; combine with `--filter` to isolate one test |
+| `acton script <path> --debug` | A locally executing script |
+| `acton retrace <HASH> --contract <NAME> --debug` | A real on-chain transaction |
+
+Start a debug session on a specific test and listen on a fixed port:
+
+```bash
+acton test contracts/tests/counter.test.tolk \
+  --filter "increase counter" \
+  --debug \
+  --debug-port 4711
+```
+
+Then attach from VS Code by adding this to `.vscode/launch.json`:
+
+```json title=".vscode/launch.json"
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "tolk",
+      "request": "launch",
+      "name": "Attach to Acton debug session",
+      "debugServer": 4711
+    }
+  ]
+}
+```
+
+<Note>
+  In JetBrains IDEs, open a `*.test.tolk` file and click the **Debug** button on any run configuration — the plugin starts Acton with `--debug` and attaches automatically.
+</Note>
+
+## Set up a wallet
+
+Deploying to testnet requires a funded wallet. Create one and request testnet funds in a single step:
+
+```bash
+acton wallet new --name deployer --local --airdrop --version v5r1
+```
+
+```
+✓ Wallet successfully created and added to wallets.toml
+✓ Wallet address is EQB...m6n
+
+✓ The mnemonic is securely stored in your system's keyring.
+→ Requesting airdrop for wallet deployer EQB...m6n
+✓ Challenge solved in 46.8ms
+✓ Your claim has been queued. It will be processed soon.
+
+NOTE: This is a testnet wallet. Coins in testnet have NO VALUE.
+```
+
+<Warning>
+  If secure storage is unavailable, the mnemonic is written to `wallets.toml` in plain text. Acton adds `wallets.toml` to `.gitignore` automatically — never commit it manually.
+</Warning>
+
+Other useful wallet commands:
+
+| Command | Purpose |
+|---|---|
+| `acton wallet list --balance` | List configured wallets and on-chain balances |
+| `acton wallet import --name deployer` | Import an existing mnemonic |
+| `acton wallet airdrop deployer --net testnet` | Request testnet funds for an existing wallet |
+| `acton wallet export-mnemonic deployer` | Export the mnemonic interactively |
+| `acton wallet remove deployer -y` | Remove a wallet non-interactively |
+
+## Deploy to testnet
+
+There is no standalone `acton deploy` command — contracts are deployed through Tolk scripts. The counter template includes `contracts/scripts/deploy.tolk` and registers two script aliases in `Acton.toml`: `deploy-emulation` and `deploy-testnet`.
+
+### Local emulation (no wallet needed)
+
+Test the deployment flow locally without a wallet or network connection:
+
+```bash
+acton run deploy-emulation
+```
+
+### Fork from live network state
+
+Use `--fork-net` to resolve live account state from testnet while keeping execution local — no transactions are broadcast:
+
+```bash
+acton script contracts/scripts/deploy.tolk --fork-net testnet
+```
+
+Always verify scripts with `--fork-net` before broadcasting them to a real network.
+
+### Deploy to testnet
+
+Pass `--net testnet` to broadcast all `net.send()` calls to the real network:
+
+```bash
+acton script contracts/scripts/deploy.tolk --net testnet
+```
+
+```
+acton script contracts/scripts/deploy.tolk --net testnet
+Awaiting trace... [Attempt 1/20]
+Trace settled with 2 transaction(s)
+N/A -> external
+└── ext-in 0x7369676e -> EQD36X..ur8XSS A      gas=4939
+    └── empty 0.005 TON -> EQBoxX..16Bfkg B    gas=692
+
+Deployed counter to kQD...tVe (Counter)
+Counter owner is kQB...iD (deployer)
+Counter value is 0
+```
+
+Note the deployed contract address — you need it for verification.
+
+<Tip>
+  Pass `--tonconnect` to approve the broadcast through a TON Connect wallet (such as Tonkeeper) instead of a wallet from `wallets.toml`. Acton opens a local page in the browser for approval.
+</Tip>
+
+## Verify the contract
+
+`acton verify` checks that the deployed bytecode matches local sources by compiling them, uploading to the TON Verifier backend, collecting signatures, and submitting the verification transaction.
+
+```bash
+acton verify Counter --net testnet --address <CONTRACT_ADDRESS>
+```
+
+Replace `<CONTRACT_ADDRESS>` with the address from the deployment step. A funded wallet is required; if only one wallet is configured it will be selected automatically.
+
+Use `--dry-run` to compile and upload sources without consuming funds:
+
+```bash
+acton verify Counter --net testnet --address <CONTRACT_ADDRESS> --dry-run
+```
+
+Pass `--tonconnect` to approve the final verification transaction through a TON Connect wallet instead:
+
+```bash
+acton verify Counter --address EQDt7LL... --net mainnet --tonconnect
+```
+
+## Manage on-chain libraries
+
+For larger contracts that share reusable code, Acton supports publishing Tolk contracts as masterchain library accounts and referencing them from multiple deployments.
+
+```bash
+# Publish a contract as a library for 365 days
+acton library publish <CONTRACT_NAME> \
+  --duration 365d \
+  --wallet deployer \
+  --net testnet \
+  --local
+
+# Check the library's on-chain status
+acton library info <LIBRARY_NAME>
+
+# Top up the library before storage fees run out
+acton library topup <LIBRARY_NAME> --duration 1y --wallet deployer
+```
+
+## Inspect remote state
+
+Use `acton rpc` to query live blockchain state from the terminal:
+
+```bash
+# Get account and contract state
+acton rpc info <CONTRACT_ADDRESS> --net testnet
+
+# Render a transaction trace as a decoded tree
+acton rpc trace <TX_HASH> --net testnet
+
+# Get the latest masterchain block sequence number
+acton rpc block-number --net testnet
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Testing guide" icon="flask">
+    Deep dive into writing comprehensive tests: fork mode, gas snapshots, fuzz testing, and the browser Test UI.
+  </Card>
+  <Card title="Scripting guide" icon="scroll">
+    Write standalone Tolk scripts for deployment, automation, and contract interaction.
+  </Card>
+  <Card title="Linting rules" icon="list-check">
+    Browse all 25+ Acton linting rules and learn how to configure them in `Acton.toml`.
+  </Card>
+  <Card title="CLI command reference" icon="terminal">
+    Full reference for every Acton command, flag, and subcommand.
+  </Card>
+</CardGroup>

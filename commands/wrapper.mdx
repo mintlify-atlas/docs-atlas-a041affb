@@ -1,0 +1,161 @@
+---
+title: "acton wrapper — generate TON contract wrappers"
+sidebarTitle: "wrapper"
+description: "Generate Tolk or TypeScript wrappers and test stubs with acton wrapper. Covers --all, --output, --output-dir, --test, --test-output, --test-output-dir, --ts, and Acton.toml config."
+---
+
+`acton wrapper` generates a Tolk wrapper for a contract defined in `Acton.toml`
+and optionally produces a stub test file or a TypeScript wrapper for frontend
+and tooling integrations. Wrapper generation uses the ABI emitted by the Tolk
+compiler from the contract source (or from a configured `types` interface file
+for precompiled `.boc` contracts). No prior `acton build` run is required.
+
+## Synopsis
+
+```bash
+# Generate wrapper for one contract
+acton wrapper [OPTIONS] <CONTRACT_NAME>
+
+# Generate wrappers for every contract in Acton.toml
+acton wrapper [OPTIONS] --all
+```
+
+---
+
+## Arguments & options
+
+### Wrapper options
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `<CONTRACT_NAME>` | string | — | Contract name from `Acton.toml`. Required unless `--all` is given. Conflicts with `--all`. |
+| `--all` | flag | false | Generate wrappers for every contract defined in `Acton.toml`. Conflicts with `--output`, `--test-output`, and `<CONTRACT_NAME>`. |
+| `-o`, `--output <PATH>` | path | — | Write the generated wrapper to an exact file path. Conflicts with `--output-dir` and `--all`. |
+| `--output-dir <DIR>` | path | `[wrappers.tolk].output-dir` or project default | Write the generated wrapper to a directory and let Acton choose the file name. Conflicts with `--output`. |
+
+### Test stub options
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-t`, `--test` | flag | false | Generate a stub test file alongside the wrapper. Conflicts with `--ts`. |
+| `--test-output <PATH>` | path | — | Write the generated test file to an exact path. Requires `--test`. Conflicts with `--all`, `--test-output-dir`, and `--ts`. |
+| `--test-output-dir <DIR>` | path | `[wrappers.tolk].test-output-dir` or project default | Write the generated test file to a directory. Requires `--test`. Conflicts with `--test-output` and `--ts`. |
+
+### TypeScript options
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--ts` | flag | false | Generate a TypeScript wrapper via `@ton/tolk-abi-to-typescript@0.5.0`. Requires Node.js, npm, and npx in `PATH`. Conflicts with `--test`, `--test-output`, and `--test-output-dir`. |
+
+### Global flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--color <WHEN>` | `auto` \| `always` \| `never` | `auto` | Control coloured output. |
+| `--manifest-path <PATH>` | path | — | Path to `Acton.toml`. Conflicts with `--project-root`. |
+| `--project-root <PATH>` | path | — | Path to project root. Conflicts with `--manifest-path`. |
+
+---
+
+## ABI requirements
+
+Wrapper generation depends on the ABI exposed by the Tolk compiler.
+
+| ABI field | Effect when present |
+|-----------|---------------------|
+| `storage: ...` | Generates typed storage helpers: `fromStorage(...)`, `deploy(...)` |
+| `incomingMessages: ...` | Generates `send{Message}(...)` and `sendAny(...)` helpers |
+| Declared get methods | Generated as typed wrapper methods |
+
+When `incomingMessages` is absent, message-sending helpers are not generated.
+When `storage` is absent, storage helpers fall back to an untyped initializer.
+
+---
+
+## Acton.toml configuration
+
+```toml title="Acton.toml"
+[wrappers.tolk]
+output-dir       = "wrappers"
+generate-test    = true
+test-output-dir  = "tests"
+
+[wrappers.typescript]
+output-dir = "wrappers-ts"
+```
+
+For precompiled `.boc` contracts, add a `types` interface file so wrapper
+generation can read ABI metadata:
+
+```toml title="Acton.toml"
+[contracts.Precompiled]
+src   = "contracts/Precompiled.boc"
+types = "contracts/Precompiled.types.tolk"
+```
+
+CLI flags override config values for the current invocation. Existing wrapper
+files at the target path are always overwritten.
+
+---
+
+## TypeScript generation
+
+`acton wrapper --ts` shells out to `npx @ton/tolk-abi-to-typescript@0.5.0`.
+Node.js, npm, and `npx` must be in `PATH`. The `--ts` flag cannot be combined
+with `--test`, `--test-output`, or `--test-output-dir`.
+
+---
+
+## Examples
+
+<CodeGroup>
+```bash Generate a Tolk wrapper for one contract
+acton wrapper Counter
+```
+
+```bash Generate a wrapper and a stub test file
+acton wrapper Counter --test
+```
+
+```bash Generate a TypeScript wrapper
+acton wrapper Counter --ts
+```
+
+```bash Generate into a custom output directory
+acton wrapper Counter --output-dir wrappers/generated
+```
+
+```bash Generate into an exact output file path
+acton wrapper Counter --output wrappers/CounterWrapper.tolk
+```
+
+```bash Generate wrapper and test into custom directories
+acton wrapper Counter \
+  --test \
+  --output-dir wrappers \
+  --test-output-dir tests/generated
+```
+
+```bash Generate a TypeScript wrapper for the frontend
+acton wrapper Counter --ts --output-dir app/src/wrappers-ts
+```
+
+```bash Generate wrappers for all contracts
+acton wrapper --all
+```
+
+```bash Generate TypeScript wrappers for all contracts
+acton wrapper --all --ts
+```
+
+```bash Generate all Tolk wrappers into a specific directory
+acton wrapper --all --output-dir wrappers/generated
+```
+</CodeGroup>
+
+<Note>
+  `acton wrapper` compiles the contract source directly each time it runs —
+  you do not need to run `acton build` first. For `.boc` contracts, configure
+  a `types` interface file in `Acton.toml` to enable ABI-backed wrapper
+  generation.
+</Note>

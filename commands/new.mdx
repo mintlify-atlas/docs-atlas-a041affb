@@ -1,0 +1,174 @@
+---
+title: "acton new — create a TON project from a template"
+sidebarTitle: "new"
+description: "Scaffold a new Acton project with acton new. Covers --template, --app, --hooks, --agents, --overwrite, --license, and all available built-in templates."
+---
+
+`acton new` creates a fully-initialized TON smart contract project in a new
+directory. It copies the selected template scaffold, writes starter files such
+as `Acton.toml`, `.env.example`, `.editorconfig`, and `.gitignore`, installs
+the bundled standard library, and optionally sets up Git hooks and an
+`AGENTS.md` coding-agent guidance file. When `git` is available in `PATH` the
+command also runs `git init` and `git add .` inside the new directory — no
+initial commit is created.
+
+## Synopsis
+
+```bash
+acton new [OPTIONS] <PATH>
+acton new --templates        # list available templates as JSON
+```
+
+## Arguments & options
+
+### Positional
+
+| Argument | Description |
+|----------|-------------|
+| `<PATH>` | Directory to create the project in. Use `.` to scaffold into the current directory. Required unless `--templates` is passed. |
+
+### Project options
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--name <NAME>` | string | directory name | Project name written to `Acton.toml`. Interactive mode prompts when omitted. |
+| `--description <DESC>` | string | `A TON blockchain project` | Project description written to `Acton.toml`. |
+| `--template <TEMPLATE>` | enum | prompted | Template to use. See [Templates](#templates) below. |
+| `--license <LICENSE>` | string | `MIT` | SPDX license identifier. Acton writes a `LICENSE` file for built-in templates. |
+| `--app` | flag | false | Include the TypeScript app scaffold when the template supports it. |
+| `--hooks` | flag | false | Create and install the default project-local Git hooks. |
+| `--agents` | flag | false | Include an `AGENTS.md` file with coding-agent guidance. |
+| `--overwrite` | flag | false | Overwrite existing files that collide with template paths. |
+
+### Global flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--color <WHEN>` | `auto` \| `always` \| `never` | `auto` | Control coloured output. |
+| `--manifest-path <PATH>` | path | — | Accepted for CLI consistency; `acton new` does not load an existing manifest. Conflicts with `--project-root`. |
+| `--project-root <PATH>` | path | — | Accepted for CLI consistency; `acton new` does not require an existing project root. Conflicts with `--manifest-path`. |
+
+---
+
+## Templates
+
+<Tabs>
+  <Tab title="counter">
+    A minimal counter contract with a wrapper, tests, a deployment script, and
+    a CI workflow. The go-to starting point for learning Acton and for small
+    single-contract projects.
+  </Tab>
+  <Tab title="jetton">
+    A complete jetton (fungible token) implementation with minter and wallet
+    contracts, wrappers, tests, a deployment script, and a CI workflow.
+  </Tab>
+  <Tab title="nft">
+    An NFT collection and item contract pair with wrappers, tests, deployment
+    scripts, and a CI workflow.
+  </Tab>
+  <Tab title="w5-extension">
+    A Wallet V5 extension contract and subscription example. Includes vendored
+    Wallet V5 sources for end-to-end testing, wrappers for both extension and
+    wallet, integration tests for install/payment/cancellation flows, and
+    deploy/install/delete scripts.
+  </Tab>
+  <Tab title="counter-app">
+    The counter template with the full TypeScript app layout pre-enabled.
+    Equivalent to `--template counter --app`.
+  </Tab>
+  <Tab title="jetton-app">
+    The jetton template with the full TypeScript app layout pre-enabled.
+    Equivalent to `--template jetton --app`.
+  </Tab>
+  <Tab title="nft-app">
+    The NFT template with the full TypeScript app layout pre-enabled.
+    Equivalent to `--template nft --app`.
+  </Tab>
+</Tabs>
+
+<Note>
+  All built-in templates support `--app`. With `--app`, Acton adds a Vite-based
+  React app under `app/`, generated TypeScript wrappers under `wrappers-ts/`,
+  and top-level `package.json` / `package-lock.json` files. Run `npm ci` before
+  using frontend commands.
+</Note>
+
+### TypeScript app layout
+
+When `--app` is used the project gets:
+
+- `contracts/src/` — contract sources and shared Tolk types
+- `contracts/tests/` — tests
+- `contracts/wrappers/` — generated Tolk wrappers
+- `contracts/scripts/` — deployment and utility scripts
+- `wrappers-ts/` — generated TypeScript wrappers
+- `app/` — React + Vite frontend
+
+Common commands in the generated app workspace:
+
+```bash
+npm run dev          # start the Vite dev server
+npm run build        # build the frontend bundle (runs acton build first)
+npm run typecheck    # TypeScript type checking
+npm run fmt          # format frontend sources
+npm run test         # run acton test (when the template provides it)
+```
+
+---
+
+## Interactive mode
+
+When standard input and output are both connected to a terminal, `acton new`
+uses a short interactive flow asking for:
+
+1. Project name
+2. Template
+3. Whether to include the TypeScript app layout
+4. Whether to configure advanced options (description, license, Git hooks, AGENTS.md)
+
+For CI or scripting, pass `--name`, `--template`, and any other flags to avoid
+prompts entirely.
+
+---
+
+## Examples
+
+<CodeGroup>
+```bash Basic counter project
+acton new my-project
+```
+
+```bash Non-interactive with explicit metadata
+acton new my-project \
+  --name "My Project" \
+  --description "Cool counter" \
+  --template counter \
+  --license MIT
+```
+
+```bash Scaffold into the current directory
+acton new . --template counter --name "My Project"
+```
+
+```bash With TypeScript app scaffold
+acton new my-project --template counter --app
+```
+
+```bash With Git hooks and AGENTS.md
+acton new my-project --template counter --hooks --agents
+```
+
+```bash Jetton with full app layout
+acton new my-jetton --template jetton --app
+```
+
+```bash List available templates (machine-readable JSON)
+acton new --templates
+```
+</CodeGroup>
+
+<Warning>
+  If `<PATH>` already exists as a non-empty directory, `acton new` refuses to
+  continue. Pass `--overwrite` to allow overwriting files that collide with
+  template paths, or use `.` to scaffold into the current directory.
+</Warning>

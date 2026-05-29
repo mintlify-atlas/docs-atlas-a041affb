@@ -1,0 +1,203 @@
+---
+title: "acton rpc — inspect TON accounts and transactions"
+sidebarTitle: "rpc"
+description: "Query live account state, run get methods, fetch masterchain block info, and render transaction traces from testnet, mainnet, or a running localnet."
+---
+
+`acton rpc` provides fast, read-only inspection of the TON blockchain without needing a full project setup. Use it to check whether a contract is active, inspect its balance and state hashes, read the latest masterchain block, or render a complete transaction trace. When run inside an Acton project, it goes further: if the deployed contract's code hash matches a locally compiled contract, Acton prints the matched contract name and decodes storage using the local compiler ABI.
+
+## Synopsis
+
+```bash
+acton rpc <SUBCOMMAND> [OPTIONS]
+```
+
+## Subcommands
+
+| Subcommand | Description |
+|---|---|
+| `info` | Show account state, balance, and decoded storage |
+| `block` | Print the latest masterchain block JSON |
+| `block-number` | Print the latest masterchain block seqno |
+| `trace` | Fetch and render a transaction trace by root hash |
+
+---
+
+### acton rpc info
+
+Fetch account state for a single address and print status, balance, code/data hashes, and (when a local ABI match is found) decoded storage.
+
+**Synopsis**
+
+```bash
+acton rpc info <ADDRESS> [OPTIONS]
+```
+
+**Options**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `ADDRESS` | string | **required** | Contract address in friendly or raw format |
+| `--net` | string | `testnet` | Network to query: `mainnet`, `testnet`, `localnet`, `custom:<name>` |
+
+**Output includes:**
+- Account status (`active`, `frozen`, `uninitialized`)
+- Balance in TON
+- Last transaction LT and hash
+- Code hash and data hash (when the account has deployed state)
+- Matched local contract name (when a project contract has the same `code_hash`)
+- Decoded storage in a YAML-like view (when compiler ABI metadata is available)
+
+---
+
+### acton rpc block
+
+Print the full TonCenter `getMasterchainInfo` JSON response for the selected network.
+
+**Synopsis**
+
+```bash
+acton rpc block [OPTIONS]
+```
+
+**Options**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--net` | string | `testnet` | Network to query |
+
+---
+
+### acton rpc block-number
+
+Print only the latest masterchain block `seqno` as a decimal number. Useful for scripting and fork configuration.
+
+**Synopsis**
+
+```bash
+acton rpc block-number [OPTIONS]
+```
+
+**Options**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--net` | string | `testnet` | Network to query |
+
+---
+
+### acton rpc trace
+
+Fetch a TonCenter v3 trace by root transaction hash and render it using the same transaction tree formatter as `acton test`. Supports three verbosity levels and optional message body decoding.
+
+**Synopsis**
+
+```bash
+acton rpc trace <HASH> [OPTIONS]
+```
+
+**Options**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `HASH` | string | **required** | Root transaction hash (hex) |
+| `--net` | string | `testnet` | Network to query |
+| `--summary` | flag | — | Print only the trace summary (conflicts with `--tree`, `--verbose`) |
+| `--tree` | flag | — | Print summary + transaction tree (default mode) |
+| `--verbose` | flag | — | Print summary, tree, and per-transaction fields |
+| `--show-bodies` | flag | — | Print decoded message bodies in the transaction tree |
+
+**Output includes:**
+- Query hash and trace ID
+- Root transaction hash
+- Whether the trace is complete
+- Total transaction and message counts
+- Full transaction tree (in `--tree` and `--verbose` modes)
+
+---
+
+## Network resolution
+
+| Network value | Resolves to |
+|---|---|
+| `mainnet` | Built-in TonCenter mainnet endpoint |
+| `testnet` | Built-in TonCenter testnet endpoint |
+| `localnet` | Configured localnet or default `http://127.0.0.1:5411` |
+| `custom:<name>` | `[networks.<name>]` in `Acton.toml` |
+
+`acton rpc` does not require a project manifest for `mainnet` and `testnet` queries. For `localnet` and `custom:<name>`, Acton needs access to a project or manifest to read network configuration — use `--manifest-path` or `--project-root` when running outside the project directory.
+
+## TonCenter API keys
+
+| Variable | Used for |
+|---|---|
+| `TONCENTER_MAINNET_API_KEY` | `--net mainnet` |
+| `TONCENTER_TESTNET_API_KEY` | `--net testnet` |
+| `<NORMALIZED_NAME>_API_KEY` | `custom:<name>` networks |
+
+Acton loads `.env` automatically. Set the relevant key there for project work and use shell variables for CI or one-off overrides.
+
+## ABI matching and storage decoding
+
+When Acton can resolve a local project, it:
+
+1. Fetches the remote account's code cell
+2. Computes its `code_hash`
+3. Compares the hash against locally compiled contracts in `Acton.toml`
+4. Decodes storage with the matched contract's compiler ABI
+
+Storage decoding is best-effort: it works reliably for contracts you own in the current project, but is not guaranteed for arbitrary third-party deployments.
+
+## Examples
+
+<CodeGroup>
+
+```bash Inspect a testnet account
+acton rpc info EQC...
+```
+
+```bash Inspect a mainnet account with API key
+TONCENTER_MAINNET_API_KEY=your-key acton rpc info UQC... --net mainnet
+```
+
+```bash Inspect a localnet deployment and decode storage
+acton rpc info EQC... --net localnet
+```
+
+```bash Use a custom network from another manifest
+acton --manifest-path ../other-project/Acton.toml \
+  rpc info EQC... --net custom:staging
+```
+
+```bash Print latest mainnet block JSON
+acton rpc block --net mainnet
+```
+
+```bash Print latest mainnet block number (for fork config)
+acton rpc block-number --net mainnet
+```
+
+```bash Render a testnet transaction trace
+acton rpc trace 3c1b02a33390e596... --net testnet
+```
+
+```bash Render a trace with decoded message bodies
+acton rpc trace 3c1b02a33390e596... --net testnet --show-bodies
+```
+
+```bash Render only the trace summary
+acton rpc trace 3c1b02a33390e596... --net mainnet --summary
+```
+
+</CodeGroup>
+
+## Exit status
+
+- `0` — the selected RPC query completed successfully
+- `1` — the address was invalid, the network could not be resolved, the remote request failed, or local ABI decoding encountered an unrecoverable error
+
+## See Also
+
+- `acton disasm` (see [Command Reference](/commands/overview)) — disassemble contract code fetched from the chain
+- `acton retrace` (see [Command Reference](/commands/overview)) — replay a historical transaction locally with source-level debugging
+- [`acton localnet`](/commands/localnet) — run a local network to test against

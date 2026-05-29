@@ -1,0 +1,252 @@
+---
+title: "Acton Testing APIs — Assert, Expect, and Fuzz Helpers"
+sidebarTitle: "Testing"
+description: "Complete reference for @acton/testing/assert, expect, and fuzz modules — write expressive, type-safe test assertions in Tolk."
+---
+
+Acton's testing modules give you two complementary layers of assertion. The lower-level `@acton/testing/assert` module exposes static methods on the `Assert` struct — straightforward, no ceremony, useful for tight gas-measurement checks. On top of that, `@acton/testing/expect` wraps the same logic in a fluent `expect(value).toXxx()` API that produces rich error messages with automatic source-location tracking. A third module, `@acton/testing/fuzz`, adds helpers specifically for parameterised fuzz tests driven by the `@test.fuzz` annotation. All three modules are available only in test files (`*.test.tolk`).
+
+<Note>
+The constant `ASSERTION_FAILED = 567` is thrown by all failed assertions. If you rely on `@test.fail_with`, make sure the expected exit code matches `567` for assertion failures.
+</Note>
+
+## Assert Module
+
+Import with:
+
+```tolk
+import "@acton/testing/assert"
+```
+
+### Core Methods
+
+```tolk
+// Equality
+fun Assert.equal<V1, V2>(left: V1, right: V2, message: string = "", location: string = ""): void
+fun Assert.notEqual<V1, V2>(left: V1, right: V2, message: string = "", location: string = ""): void
+
+// Decimal equality (controls failure-message formatting only)
+fun Assert.equalDecimal<T>(left: T, right: T, decimals: int, message: string = "", location: string = ""): void
+
+// Unconditional failure
+fun Assert.fail(message: string, location: string = ""): never
+
+// Reject a fuzz input (acts as normal failure outside fuzz tests)
+fun Assert.assume(condition: bool, message: string = "", location: string = ""): void
+
+// Gas budget assertion — subtracts 26 gas of measurement overhead
+fun Assert.consumesLessThan<Ret>(fn: () -> Ret, expected: int): Ret
+```
+
+### Gas Measurement Example
+
+```tolk
+import "@acton/testing/assert"
+
+get fun `test gas consumption`() {
+    val result = Assert.consumesLessThan(fun() {
+        // any computation to measure — outer variables can be captured
+        return someExpensiveComputation();
+    }, 5000);
+    Assert.equal(result, expectedValue, "wrong result");
+}
+```
+
+---
+
+## Expect Module
+
+Import with:
+
+```tolk
+import "@acton/testing/expect"
+```
+
+The `expect` function wraps any value in an `Expectation<T>` and provides a rich set of typed matcher methods. Source location is captured automatically — failed assertions tell you exactly which line failed.
+
+### Creating an Expectation
+
+```tolk
+fun expect<T>(value: T, loc: string = reflect.sourceLocationAsString()): Expectation<T>
+```
+
+### Value Matchers
+
+```tolk
+fun Expectation<T>.toEqual<U>(self, expected: U): void
+fun Expectation<T>.toNotEqual<U>(self, expected: U): void
+fun Expectation<T>.toBeLess<U>(self, expected: U): void
+fun Expectation<T>.toBeGreater<U>(self, expected: U): void
+fun Expectation<T>.toBeLessOrEqual<U>(self, expected: U): void
+fun Expectation<T>.toBeGreaterOrEqual<U>(self, expected: U): void
+
+// Decimal-aware equality (same comparison, richer error output)
+fun Expectation<T>.toEqualDecimal(self, expected: T, decimals: int): void
+
+// Approximate integer equality
+fun Expectation<int>.toBeApproxEqAbs(self, expected: int, maxDelta: int): void
+fun Expectation<int>.toBeApproxEqRel(self, expected: int, maxDelta: int): void  // percentage
+
+// Boolean
+fun Expectation<bool>.toBeTrue(self): void
+fun Expectation<bool>.toBeFalse(self): void
+
+// Nullable
+fun Expectation<T?>.toBeNull(self): void
+fun Expectation<T?>.toBeNotNull(self): void
+
+// Slice emptiness
+fun Expectation<slice>.toBeEmpty(self): void
+fun Expectation<slice>.toBeNonEmpty(self): void
+
+// Integer NaN
+fun Expectation<int>.toBeNaN(self): void
+fun Expectation<int>.toBeNonNaN(self): void
+
+// Address type
+fun Expectation<any_address>.toBeInternalAddress(self): void
+fun Expectation<any_address>.toBeNoneAddress(self): void
+fun Expectation<any_address>.toBeExternalAddress(self): void
+```
+
+### Collection Matchers
+
+```tolk
+// Arrays
+fun Expectation<array<E>>.toContain<U>(self, expected: U): void
+fun Expectation<array<E>>.toNotContain<U>(self, expected: U): void
+fun Expectation<array<E>>.toBeEmpty(self): void
+fun Expectation<array<E>>.toBeNonEmpty(self): void
+fun Expectation<array<E>>.toHaveLength(self, length: int): void
+
+// Maps
+fun Expectation<map<K, V>>.toContainKey(self, key: K): void
+fun Expectation<map<K, V>>.toNotContainKey(self, key: K): void
+fun Expectation<map<K, V>>.toContainValue(self, value: V): void
+fun Expectation<map<K, V>>.toNotContainValue(self, value: V): void
+fun Expectation<map<K, V>>.toBeEmpty(self): void
+fun Expectation<map<K, V>>.toBeNonEmpty(self): void
+fun Expectation<map<K, V>>.toHaveLength(self, length: int): void
+```
+
+### Transaction Matchers (on `SendResultList`)
+
+These are the primary matchers for checking what happened after sending a message:
+
+```tolk
+fun Expectation<SendResultList>.toHaveTx<Msg>(self, params: SearchParams = {}): void
+fun Expectation<SendResultList>.toNotHaveTx<Msg>(self, params: SearchParams = {}): void
+fun Expectation<SendResultList>.toHaveSuccessfulTx<Msg>(self, params: SearchParams = {}): void
+fun Expectation<SendResultList>.toHaveSuccessfulDeploy<Msg>(self, params: SearchParams = {}): void
+fun Expectation<SendResultList>.toHaveFailedTx<Msg>(self, params: SearchParams = {}): void
+fun Expectation<SendResultList>.toHaveBouncedTx<Msg>(self, params: SearchParams = {}): void
+fun Expectation<SendResultList>.toHaveAllSuccessfulTxs(self): void
+fun Expectation<SendResultList>.toEmitExternalMessage<Msg>(self): void
+
+// Per-transaction gas check
+fun Expectation<SendResult>.toConsumeLessThan(self, amount: int): void
+```
+
+### External Message Matchers
+
+```tolk
+fun Expectation<ExternalSendResult>.toBeAccepted(self): void
+fun Expectation<ExternalSendResult>.toBeNotAccepted(self): void
+fun Expectation<ExternalSendResult>.toHaveExternalVmExitCode(self, exitCode: int): void
+```
+
+### Expected Exit Code
+
+```tolk
+// Dynamically set the expected exit code for this test run
+fun expectToEndWithExitCode(code: int): void
+```
+
+<Tip>
+Use `expectToEndWithExitCode` when the expected exit code depends on runtime conditions. For a static exit code, prefer the `@test.fail_with(code)` annotation on the test function instead.
+</Tip>
+
+---
+
+## Fuzz Module
+
+Import with:
+
+```tolk
+import "@acton/testing/fuzz"
+```
+
+The `fuzz` struct groups helpers for tests annotated with `@test.fuzz`.
+
+```tolk
+// Reject the current fuzz input when condition is false
+fun fuzz.assume(condition: bool, message: string = "", loc: string = ...): void
+
+// Map value into [minValue, maxValue] — wrap-around for out-of-range inputs
+fun fuzz.bound<T>(value: T, minValue: T, maxValue: T, loc: string = ...): T
+```
+
+### Full Fuzz Test Example
+
+```tolk
+import "@acton/testing/expect"
+import "@acton/testing/fuzz"
+import "@acton/emulation/testing"
+import "@acton/emulation/network"
+
+@test.fuzz
+get fun `test counter never overflows`(increment: int) {
+    // Constrain the random input to a useful range
+    val safeIncrement = fuzz.bound(increment, 1, 1_000_000);
+
+    // Skip inputs that would violate a precondition
+    fuzz.assume(safeIncrement != 13, "skipping unlucky number");
+
+    val deployer = testing.treasury("deployer");
+    val txs = net.send(deployer.address, createMessage({
+        bounce: false,
+        value: ton("0.1"),
+        dest: counter.address,
+        body: Increment { amount: safeIncrement },
+    }));
+
+    expect(txs).toHaveAllSuccessfulTxs();
+}
+```
+
+---
+
+## Complete Test Example
+
+```tolk
+import "@acton/testing/assert"
+import "@acton/testing/expect"
+import "@acton/emulation/testing"
+import "@acton/emulation/network"
+import "@acton/build"
+
+get fun `test deploy and increment counter`() {
+    val deployer = testing.treasury("deployer");
+    val code = build("Counter");
+
+    val counter = Counter.fromStorage({ id: 1, counter: 0 });
+
+    val deployTxs = net.send(deployer.address, counter.deploy(deployer.address, ton("0.05")));
+    expect(deployTxs).toHaveSuccessfulDeploy({ to: counter.address });
+
+    val incrementTxs = net.send(deployer.address, createMessage({
+        bounce: false,
+        value: ton("0.05"),
+        dest: counter.address,
+        body: Increment { amount: 5 },
+    }));
+    expect(incrementTxs).toHaveSuccessfulTx({ to: counter.address });
+
+    val value = net.runGetMethod<int>(counter.address, "get_counter");
+    expect(value).toEqual(5);
+
+    Assert.consumesLessThan(fun() {
+        net.runGetMethod<int>(counter.address, "get_counter");
+    }, 2000);
+}
+```

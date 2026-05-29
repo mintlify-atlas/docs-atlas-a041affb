@@ -1,0 +1,280 @@
+---
+title: "acton wallet — TON wallet management"
+sidebarTitle: "wallet"
+description: "Create, import, list, fund, sign, export, and remove TON wallets used by Acton deployment and scripting workflows."
+---
+
+`acton wallet` is your all-in-one interface for managing the cryptographic identities that power every Acton deployment, script, and verification flow. It handles the full lifecycle: generating fresh mnemonics, importing existing ones, querying on-chain balances, requesting faucet funds, signing external message bodies, exporting secrets, and cleaning up stale entries. Wallets are stored either locally in the current project's `wallets.toml` or globally in `global.wallets.toml`, and Acton merges both at runtime — local entries always win when the same name appears in both files.
+
+<Warning>
+  Wallets created with Acton are intended for development and testing. Never commit `wallets.toml` files containing real mnemonics to version control, and always use separate wallets for testnet and mainnet to avoid accidental fund loss.
+</Warning>
+
+## Synopsis
+
+```bash
+acton wallet <SUBCOMMAND> [OPTIONS]
+```
+
+## Subcommands
+
+| Subcommand | Description |
+|---|---|
+| `new` | Generate a new wallet and mnemonic |
+| `import` | Import an existing mnemonic-based wallet |
+| `list` | List all configured wallets |
+| `airdrop` | Request faucet funds for a wallet |
+| `export-mnemonic` | Interactively export a wallet mnemonic |
+| `sign` | Sign an external message body |
+| `remove` | Remove a wallet from configuration |
+
+---
+
+### acton wallet new
+
+Generate a brand-new wallet with a fresh mnemonic. Acton prompts for any missing required values interactively.
+
+**Synopsis**
+
+```bash
+acton wallet new [OPTIONS]
+```
+
+**Options**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--name` | string | prompted | Wallet name (lowercased, spaces become `-`) |
+| `--version` | enum | prompted | Wallet contract version (see values below) |
+| `--local` | flag | — | Save to project-local `wallets.toml` |
+| `--global` | flag | — | Save to `global.wallets.toml` |
+| `--airdrop` | flag | — | Request testnet TON immediately after creation |
+| `--faucet-url` | URL | — | Custom faucet URL for the testnet airdrop |
+| `--no-wait-airdrop` | flag | — | Skip the post-airdrop balance confirmation wait |
+| `--secure` | bool | auto | Force (`true`) or disable (`false`) keyring storage |
+| `--json` | flag | — | Emit JSON output |
+
+**Wallet versions:** `v1r1`, `v1r2`, `v1r3`, `v2r1`, `v2r2`, `v3r1`, `v3r2`, `v4r1`, `v4r2`, `v5r1`, `highloadv1r1`, `highloadv1r2`, `highloadv2`, `highloadv2r1`, `highloadv2r2`
+
+<Tip>
+  For most deployment workflows, `v5r1` is the recommended modern wallet version. `v4r2` is also widely supported by ecosystem tooling.
+</Tip>
+
+---
+
+### acton wallet import
+
+Import a wallet from an existing mnemonic. All storage options from `wallet new` apply here too.
+
+**Synopsis**
+
+```bash
+acton wallet import [OPTIONS] [MNEMONIC_WORDS...]
+```
+
+**Options**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--name` | string | prompted | Wallet name |
+| `--version` | enum | prompted | Wallet contract version |
+| `--local` | flag | — | Save to project-local `wallets.toml` |
+| `--global` | flag | — | Save to `global.wallets.toml` |
+| `--secure` | bool | auto | Force or disable keyring storage |
+| `--json` | flag | — | Emit JSON output |
+
+---
+
+### acton wallet list
+
+List all configured wallets merged from global and local sources. Add `--balance` to query on-chain balances via TonCenter.
+
+**Synopsis**
+
+```bash
+acton wallet list [OPTIONS]
+```
+
+**Options**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `-b`, `--balance` | flag | — | Fetch and print on-chain balances |
+| `--json` | flag | — | Emit JSON output |
+
+<Note>
+  Balance lookups read `TONCENTER_TESTNET_API_KEY` from the environment (or `.env`). Set this key to avoid rate-limit errors on repeated balance checks.
+</Note>
+
+---
+
+### acton wallet airdrop
+
+Request faucet funds for a wallet. Works against the testnet PoW faucet or a running localnet.
+
+**Synopsis**
+
+```bash
+acton wallet airdrop [NAME] [OPTIONS]
+```
+
+**Options**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--net` | enum | `testnet` | Airdrop backend: `testnet` or `localnet` |
+| `--faucet-url` | URL | — | Custom faucet URL (testnet only) |
+| `--no-wait-airdrop` | flag | — | Skip balance confirmation wait |
+| `--json` | flag | — | Emit JSON output |
+
+---
+
+### acton wallet export-mnemonic
+
+Interactively export a wallet's mnemonic phrase. This command is intentionally interactive-only and asks for confirmation before revealing the secret.
+
+**Synopsis**
+
+```bash
+acton wallet export-mnemonic [NAME]
+```
+
+---
+
+### acton wallet sign
+
+Sign an external message body BoC using the selected wallet's private key. Useful for tooling integrations that compose messages outside of Acton scripts.
+
+**Synopsis**
+
+```bash
+acton wallet sign [NAME] [OPTIONS]
+```
+
+**Options**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--body`, `--message` | BoC (hex/base64) | stdin or prompted | External body to sign |
+| `--json` | flag | — | Output signed BoC as JSON object |
+
+---
+
+### acton wallet remove
+
+Remove a wallet entry from configuration. If the wallet uses keyring storage, Acton also removes the mnemonic from the secure store.
+
+**Synopsis**
+
+```bash
+acton wallet remove [NAME] [OPTIONS]
+```
+
+**Options**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `-y`, `--yes` | flag | — | Skip confirmation prompt |
+| `--json` | flag | — | Emit JSON output |
+
+---
+
+## wallets.toml Structure
+
+Wallets are stored in TOML format. Acton supports four mnemonic sources, resolved in this priority order: `mnemonic-env` → `mnemonic-file` → `mnemonic-keyring` → `mnemonic`.
+
+<CodeGroup>
+
+```toml Keyring (recommended)
+[wallets.deployer]
+kind = "v5r1"
+workchain = 0
+keys = { mnemonic-keyring = "my-project:deployer" }
+
+[wallets.deployer.expected]
+address-testnet = "0QD36XRy1ISfSB8zmlSQKBsa5bmeixAWwD6vUUhOXXur8ZLd"
+```
+
+```toml Environment variable
+[wallets.deployer]
+kind = "v5r1"
+workchain = 0
+keys = { mnemonic-env = "DEPLOYER_MNEMONIC" }
+```
+
+```toml External file
+[wallets.deployer]
+kind = "v4r2"
+workchain = 0
+keys = { mnemonic-file = ".secrets/deployer.txt" }
+```
+
+```toml Plain text (dev only)
+[wallets.deployer]
+kind = "v5r1"
+workchain = 0
+keys = { mnemonic = "word1 word2 word3 ... word24" }
+```
+
+</CodeGroup>
+
+## Resolution Rules
+
+- Global wallets in `global.wallets.toml` are loaded first; local `wallets.toml` entries override them when names collide.
+- Commands that need a wallet auto-select it only when exactly one merged wallet is available.
+- On a TTY with multiple wallets, Acton prompts interactively. In non-interactive contexts, pass the wallet name explicitly.
+
+## Examples
+
+<CodeGroup>
+
+```bash Create a local deployer wallet
+acton wallet new --name deployer --version v5r1 --local
+```
+
+```bash Create with immediate testnet airdrop
+acton wallet new --name deployer --local --airdrop
+```
+
+```bash Import from existing mnemonic
+acton wallet import --name deployer --local \
+  "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13 word14 word15 word16 word17 word18 word19 word20 word21 word22 word23 word24"
+```
+
+```bash List wallets with on-chain balances
+acton wallet list --balance
+```
+
+```bash Fund from testnet faucet
+acton wallet airdrop deployer --net testnet
+```
+
+```bash Fund from running localnet
+acton wallet airdrop deployer --net localnet
+```
+
+```bash Sign a message body from stdin
+cat body.boc.base64 | acton wallet sign deployer
+```
+
+```bash Remove a wallet non-interactively
+acton wallet remove old-wallet -y
+```
+
+</CodeGroup>
+
+## Security Notes
+
+<Warning>
+  Plain-text mnemonic storage (`mnemonic = "..."`) is only acceptable for throw-away development wallets. For any wallet that holds or will hold real funds, use `mnemonic-keyring`, `mnemonic-env`, or `mnemonic-file` instead. Acton adds `wallets.toml` to `.gitignore` automatically, but safe secret hygiene remains your responsibility.
+</Warning>
+
+- Use `--secure true` to require keyring storage and fail fast if it is unavailable.
+- Use separate wallets for testnet and mainnet — never reuse the same mnemonic across networks.
+- The `expected.address-testnet` and `expected.address-mainnet` fields in `wallets.toml` act as safety checks; Acton validates the derived address before any real-network operation.
+
+## See Also
+
+- [Wallet management guide](/guides/wallets)
+- [`acton script`](/commands/script) — run scripts that use configured wallets
+- [`acton localnet`](/commands/localnet) — local network with faucet support

@@ -1,0 +1,216 @@
+---
+title: "acton script — run a standalone Tolk script"
+sidebarTitle: "script"
+description: "Execute standalone Tolk scripts with acton script. Covers --net, --fork-net, --debug, --backtrace, --verbose, --clear-cache, --tonconnect, --explorer, and argument forwarding."
+---
+
+`acton script` executes a standalone Tolk script file. Scripts are the
+standard Acton mechanism for deployment flows, blockchain queries, and one-off
+operational tasks. They differ from tests in that they define a `main()` entry
+point and can send real on-chain transactions when `--net` is provided.
+Without `--net` the script runs entirely in the local TVM emulator, making it
+safe to iterate on before committing to a broadcast.
+
+## Synopsis
+
+```bash
+acton script [OPTIONS] <PATH> [ARGS...]
+```
+
+Arguments after `<PATH>` are forwarded to the script's `main()` function.
+Insert `--` before script arguments that look like flags to prevent Acton
+from parsing them:
+
+```bash
+acton script scripts/query.tolk -- --net-like-value
+```
+
+---
+
+## Arguments & options
+
+### Positional
+
+| Argument | Description |
+|----------|-------------|
+| `<PATH>` | Path to the Tolk script file to execute. |
+| `[ARGS...]` | Arguments parsed against the `main()` ABI and passed to the script. |
+
+### Script options
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--verbose` | count | 0 | Increase executor log verbosity to level 1. Useful for `debug.dumpStack()` output. |
+
+### Debugging
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--debug` | flag | false | Enable debug mode. |
+| `--backtrace <LEVEL>` | `full` | — | Enable execution backtraces. Currently `full` is the only supported level. |
+| `--debug-port <PORT>` | u16 | `12345` | Port for the debug server. |
+
+### Cache
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--clear-cache` | flag | false | Clear the compilation cache before running. |
+
+### Remote
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--fork-net <NETWORK>` | string | — | Fork blockchain state from a remote network for local execution. When `--net` is set, an omitted `--fork-net` defaults to that broadcast network. Conflicting values are rejected. |
+| `--fork-block-number <SEQNO>` | u64 | — | Historical block sequence number to fork from. |
+
+### Broadcasting
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--net <NETWORK>` | string | — | Broadcast to the selected network. When omitted, the script runs in emulation mode. |
+| `--tonconnect` | flag | false | Use TON Connect wallet approval for broadcast messages instead of local wallet mnemonics. Saves the session to `build/sessions/tonconnect/<network>.json`. |
+| `--tonconnect-port <PORT>` | u16 | `52258` | Port for the local TON Connect page. Keep stable across runs for the same project so injected wallets recognise the local dApp. |
+| `--explorer <NAME>` | `tonscan` \| `toncx` \| `dton` \| `tonviewer` | — | Explorer to use for transaction links printed after a broadcast. |
+
+### Output
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--show-bodies` | flag | false | Show decoded message bodies in printed transaction trees when ABI is known. |
+
+### Global flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--color <WHEN>` | `auto` \| `always` \| `never` | `auto` | Control coloured output. |
+| `--manifest-path <PATH>` | path | — | Path to `Acton.toml`. Conflicts with `--project-root`. |
+| `--project-root <PATH>` | path | — | Path to project root. Conflicts with `--manifest-path`. |
+
+---
+
+## Script model
+
+| Mode | Behaviour |
+|------|-----------|
+| Emulation (default) | Executes locally using emulator wallets. No network access. |
+| `--fork-net` | Resolves remote blockchain state but keeps execution local. |
+| `--net` | Broadcasts real transactions. Reads wallet keys from `wallets.toml`. |
+| `--net --tonconnect` | Broadcasts through a connected TON Connect wallet. |
+
+Wallet names referenced in the script are resolved from `wallets.toml`, with
+local entries overriding `global.wallets.toml`. With `--tonconnect`, any
+`scripts.wallet("name")` call resolves to the connected wallet address.
+
+---
+
+## Argument forwarding
+
+Forwarded arguments are parsed against the ABI for `main()`:
+
+| Type | Syntax |
+|------|--------|
+| Integers | `42`, `-1`, `0xff`, `0b1010` |
+| Booleans | `true`, `false` |
+| Nullable | `null` |
+| `cell` / `slice` / `bitsN` | Plain BoC hex without `C{}` or `CS{}` prefixes |
+| Arrays | `[item1, item2]` |
+
+The number of CLI arguments must exactly match the `main()` parameters.
+Unsupported types include `struct`, `tuple`, `map`, `dict`, `builder`,
+`any_address`, and other complex types.
+
+---
+
+## Safe execution order
+
+Before broadcasting to a live network, follow this sequence:
+
+```bash
+# 1. Build
+acton build
+
+# 2. Test
+acton test
+
+# 3. Dry-run in emulator
+acton script scripts/deploy.tolk
+
+# 4. Broadcast to testnet
+acton script scripts/deploy.tolk --net testnet
+
+# 5. (When confident) broadcast to mainnet
+acton script scripts/deploy.tolk --net mainnet
+```
+
+---
+
+## TonCenter API keys
+
+Built-in networks read:
+- `TONCENTER_MAINNET_API_KEY` for mainnet
+- `TONCENTER_TESTNET_API_KEY` for testnet
+
+Custom networks (`custom:<name>`) read `<NORMALIZED_NAME>_API_KEY`. Acton
+loads `.env` automatically — keep keys there rather than passing them inline.
+
+---
+
+## Examples
+
+<CodeGroup>
+```bash Local emulation (no network)
+acton script scripts/deploy.tolk
+```
+
+```bash Show executor debug logs
+acton script scripts/deploy.tolk --verbose
+```
+
+```bash Enable debug mode
+acton script scripts/deploy.tolk --debug
+```
+
+```bash Enable backtraces
+acton script scripts/deploy.tolk --backtrace full
+```
+
+```bash Fork testnet state (local execution)
+acton script scripts/query.tolk --fork-net testnet
+```
+
+```bash Fork mainnet at a specific block
+TONCENTER_MAINNET_API_KEY=your-key \
+  acton script scripts/query.tolk \
+  --fork-net mainnet \
+  --fork-block-number 42000000
+```
+
+```bash Broadcast to testnet
+acton script scripts/deploy.tolk --net testnet
+```
+
+```bash Broadcast with explorer links
+acton script scripts/deploy.tolk --net testnet --explorer tonscan
+```
+
+```bash Broadcast via TON Connect
+acton script scripts/deploy.tolk --net testnet --tonconnect
+```
+
+```bash Show decoded message bodies
+acton script scripts/deploy.tolk --net testnet --show-bodies
+```
+
+```bash Pass arguments to main()
+acton script scripts/transfer.tolk 100 "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"
+```
+
+```bash Disambiguate script args that look like flags
+acton script scripts/query.tolk -- --net-like-value
+```
+</CodeGroup>
+
+<Warning>
+  `--net` sends **real** on-chain transactions. Always test your script in
+  emulation mode first, then on testnet, before using `--net mainnet`.
+</Warning>

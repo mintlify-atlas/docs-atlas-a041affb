@@ -1,0 +1,235 @@
+---
+title: "Acton Crypto Module — Keys, Signing, and Random Bytes"
+sidebarTitle: "Crypto"
+description: "Reference for @acton/crypto — mnemonic generation, Ed25519 key derivation, cell signing, and secure random bytes for scripts and tests."
+---
+
+The `@acton/crypto` module provides host-assisted cryptographic primitives for use inside Acton scripts and tests. It covers the full lifecycle of working with Ed25519 keys on TON: generating a BIP39-compatible mnemonic, deriving a key pair from that mnemonic or from a raw 256-bit seed, signing cells and raw hashes, and generating both cryptographically secure and deterministic random bytes. Because these operations run on the Acton host, they can use the full standard-library cryptography of the underlying Rust runtime rather than being limited to TVM instructions.
+
+<Note>
+`@acton/crypto` is a **host-side** module. It cannot be imported in contract source files (`contracts/`). For on-chain signature verification, use the Tolk stdlib function `isSignatureValid` instead.
+</Note>
+
+## Import
+
+```tolk
+import "@acton/crypto"
+```
+
+## Types
+
+### KeyPair
+
+```tolk
+struct KeyPair {
+    privateKey: int   // 256-bit Ed25519 seed
+    publicKey: int    // 256-bit Ed25519 public key
+}
+```
+
+Both fields are plain `int` for direct compatibility with TVM builtins like `isSignatureValid`.
+
+### Mnemonic
+
+```tolk
+type Mnemonic = array<string>
+```
+
+An array of 24 BIP39 English words, as returned by `crypto.createMnemonic()`.
+
+---
+
+## Functions
+
+### Mnemonic Generation
+
+```tolk
+fun crypto.createMnemonic(): Mnemonic
+```
+
+Generates a new random BIP39-compatible 24-word mnemonic phrase. Each call produces a fresh, cryptographically random mnemonic.
+
+```tolk
+val words = crypto.createMnemonic();
+// words[0] .. words[23] — 24 BIP39 English words
+```
+
+### Key Derivation from Mnemonic
+
+```tolk
+fun Mnemonic.toKeyPair(self): KeyPair
+```
+
+Derives an Ed25519 key pair from a mnemonic phrase. The input must be a 24-word BIP39 mnemonic, for example as returned by `crypto.createMnemonic()`.
+
+```tolk
+val words = crypto.createMnemonic();
+val kp = words.toKeyPair();
+// kp.privateKey — 32-byte Ed25519 seed as int
+// kp.publicKey  — 32-byte Ed25519 public key as int
+```
+
+### Key Generation Without Mnemonic
+
+```tolk
+fun crypto.generateKeyPair(): KeyPair
+```
+
+Generates a random Ed25519 key pair without creating a mnemonic. Significantly faster than `createMnemonic + toKeyPair` because it skips BIP39 word generation. Use when you do not need to store or recover the mnemonic.
+
+```tolk
+val kp = crypto.generateKeyPair();
+```
+
+### Key Derivation from Seed
+
+```tolk
+fun crypto.seedToKeyPair(seed: uint256): KeyPair
+```
+
+Derives a deterministic Ed25519 key pair from a 256-bit integer seed. The same seed always produces the same key pair.
+
+```tolk
+val kp = crypto.seedToKeyPair(mySeed);
+```
+
+### Signing
+
+```tolk
+// Sign a cell — hashes the cell then signs the hash
+fun crypto.sign(privateKey: int, data: cell): slice
+
+// Sign a raw 256-bit hash directly
+fun crypto.rawSign(privateKey: int, data: int): slice
+```
+
+Both functions return a 512-bit (64-byte) Ed25519 signature as a `slice`.
+
+```tolk
+val kp = crypto.generateKeyPair();
+
+// High-level: hash + sign in one step
+val signature = crypto.sign(kp.privateKey, myMessageCell);
+
+// Low-level: sign an already-computed hash
+val hash = myMessageCell.hash();
+val signature = crypto.rawSign(kp.privateKey, hash);
+```
+
+The resulting signature can be verified on-chain with `isSignatureValid(hash, signature, kp.publicKey)`.
+
+### Secure Random Bytes
+
+```tolk
+fun crypto.getSecureRandomBytes(bytesNum: uint16): slice
+```
+
+Generates `bytesNum` cryptographically secure random bytes. The accepted range is `1..127`. Values of `0` or `>= 128` will fail.
+
+```tolk
+val randomBytes = crypto.getSecureRandomBytes(32);
+```
+
+### Fast Deterministic Random Bytes
+
+```tolk
+fun crypto.getFastRandomBytes(bytesNum: uint16, seed: int? = null): slice
+```
+
+Generates `bytesNum` deterministic random bytes using a seed. The maximum is 127 bytes.
+
+- When `seed` is provided, the output is fully reproducible regardless of time.
+- When `seed` is omitted, `blockchain.now()` is used as the seed at the moment of the call.
+
+The same seed always produces the same bytes, which makes this function ideal for reproducible test scenarios.
+
+```tolk
+// Fully deterministic — always the same bytes
+val bytes = crypto.getFastRandomBytes(16, 42);
+
+// Time-locked — same within a fixed emulation time
+testing.setNow(1700004321);
+val a = crypto.getFastRandomBytes(16);
+val b = crypto.getFastRandomBytes(16);
+// a == b because both calls used the same blockchain.now()
+```
+
+---
+
+## Complete Examples
+
+### Deploy Script With Wallet Signing
+
+```tolk
+import "@acton/crypto"
+import "@acton/emulation/scripts"
+import "@acton/emulation/network"
+import "@acton/io"
+
+fun main() {
+    // Generate a fresh key pair for a new wallet
+    val words = crypto.createMnemonic();
+    val kp = words.toKeyPair();
+
+    println("New public key: 0x{:x}", kp.publicKey);
+    println("Mnemonic: {}", words);
+
+    // Use the key pair to sign a custom external message
+    val body = MyExternalMsg { queryId: 42, action: 1 };
+    val msgCell = body.toCell();
+    val signature = crypto.sign(kp.privateKey, msgCell);
+
+    val externalMsg = net.createExternalMessage(contractAddress, SignedBody {
+        signature: signature as bits512,
+        body: body,
+    });
+
+    val result = net.sendExternal(externalMsg);
+    expect(result).toBeAccepted();
+}
+```
+
+### Test With Deterministic Keys
+
+```tolk
+import "@acton/crypto"
+import "@acton/testing/expect"
+import "@acton/emulation/testing"
+import "@acton/emulation/network"
+
+get fun `test signature validation`() {
+    // Deterministic key pair from a fixed seed — same every run
+    val kp = crypto.seedToKeyPair(0xDEADBEEF);
+
+    val deployer = testing.treasury("deployer");
+
+    // Deploy a contract that stores kp.publicKey
+    val wallet = MyWallet.fromStorage({ publicKey: kp.publicKey });
+    net.send(deployer.address, wallet.deploy(deployer.address, ton("0.1")));
+
+    // Build and sign an external message
+    val body = WalletAction { seqno: 1, action: Transfer { to: deployer.address, value: ton("0.01") } };
+    val signature = crypto.sign(kp.privateKey, body.toCell());
+
+    val msg = net.createExternalMessage(wallet.address, SignedRequest {
+        signature: signature as bits512,
+        body: body,
+    });
+
+    val result = net.sendExternal(msg);
+    expect(result).toBeAccepted();
+}
+```
+
+### Secure Random in a Script
+
+```tolk
+import "@acton/crypto"
+import "@acton/io"
+
+fun main() {
+    // Generate a 32-byte random salt for a deployment
+    val salt = crypto.getSecureRandomBytes(32);
+    println("Salt for deployment: 0x{:x}", salt.hash());
+}
+```

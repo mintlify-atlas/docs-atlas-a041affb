@@ -1,0 +1,204 @@
+---
+title: "Acton Localnet Persistence Modes and JSON Snapshots"
+sidebarTitle: "Persistence"
+description: "Persist local node state across restarts with SQLite, or export and import portable JSON snapshots for reproducible, shareable chain environments."
+---
+
+By default, the Acton local node runs entirely in memory. Every account balance, deployed contract, transaction, and piece of explorer metadata lives only in the process heap — when the node stops, all of that state vanishes. This is ideal for short-lived experiments where you want a clean slate on every run. For everything else — stable team environments, CI pipelines that need identical starting state, or long-lived local chains that survive restarts — Acton provides two complementary persistence strategies: **SQLite persistence** and **JSON snapshots**.
+
+## Default: in-memory mode
+
+When you run `acton localnet start` with no storage flags, the node operates in pure in-memory mode. No files are written to disk during the run. This is the fastest option and produces no disk I/O overhead.
+
+```bash
+acton localnet start
+```
+
+State is completely reset on every start. Use this mode for quick experiments or when you want a predictable blank chain for each test run.
+
+## SQLite persistence (`--db-path`)
+
+Pass `--db-path` with a file path to store the entire chain state in a SQLite database. The database is created if it does not exist and is updated incrementally as the node processes transactions:
+
+```bash
+acton localnet start --db-path .acton/localnet.db
+```
+
+On the next run with the same `--db-path`, the node resumes from the exact state where it left off — account balances, contract storage, block history, and transaction indexes are all preserved:
+
+```bash
+# Subsequent runs pick up where the last run ended
+acton localnet start --db-path .acton/localnet.db
+```
+
+<Tip>
+  SQLite persistence is the best choice for a stable, long-lived local environment shared by a team. Commit the path to `.acton/localnet.db` in your `.gitignore` unless you specifically want to track database changes.
+</Tip>
+
+## JSON snapshots
+
+JSON snapshots are portable, human-readable exports of the complete local node state. The current on-disk format is **snapshot version 1**. Snapshots are written as a single JSON file and can be committed to version control, shared with teammates, or used as a repeatable starting point in CI.
+
+### Loading a snapshot on startup
+
+Use `--load-state` to import a snapshot file before the node begins serving requests:
+
+```bash
+acton localnet start --load-state snapshots/localnet.json
+```
+
+The terminal prints a confirmation when the snapshot has been loaded:
+
+```
+      Loaded state from snapshots/localnet.json
+```
+
+### Saving a snapshot on shutdown
+
+Use `--dump-state` to write a snapshot when the node shuts down gracefully (via **Ctrl+C**):
+
+```bash
+acton localnet start --dump-state snapshots/localnet.json
+```
+
+On shutdown:
+
+```
+       Saved state to snapshots/localnet.json
+```
+
+### Round-trip: load then dump
+
+Combine both flags to resume from a snapshot at startup and save an updated snapshot on exit. This evolves a single portable file across sessions:
+
+```bash
+acton localnet start \
+  --load-state snapshots/localnet.json \
+  --dump-state snapshots/localnet.json
+```
+
+<Warning>
+  `--load-state` and `--db-path` cannot be combined in the same run. Choose one persistence strategy per invocation. Attempting to use both will cause the node to exit with an error before starting.
+</Warning>
+
+### Triggering a live snapshot via the control API
+
+You can export or import a snapshot while the node is still running using the control endpoints. This is useful in CI pipelines or scripted workflows where you do not want to stop the server:
+
+```bash
+# Dump the current state to a file without stopping the server
+curl -s -X POST "http://127.0.0.1:3010/acton_dumpState" \
+  -H "Content-Type: application/json" \
+  -d '{"path": "snapshots/checkpoint.json"}'
+
+# Load a snapshot into the running server, replacing its current state
+curl -s -X POST "http://127.0.0.1:3010/acton_loadState" \
+  -H "Content-Type: application/json" \
+  -d '{"path": "snapshots/checkpoint.json"}'
+```
+
+## What a JSON snapshot contains
+
+A snapshot captures the full local node state needed to resume an identical chain view. Snapshot version 1 includes:
+
+<Accordion title="Snapshot contents (version 1)">
+  - **Global chain state** — head seqno, logical time, queue policy, and config hash.
+  - **Account state cache** — the latest code, data, balance, and status for every account the node has seen.
+  - **Block history and account deltas** — block records and per-account state changes indexed by seqno.
+  - **Transaction and message history** — full transaction records and message indexes.
+  - **Address aliases** — local names registered via `/acton_setAddressName` and displayed in the explorer.
+  - **Cached token and NFT metadata** — jetton master and NFT collection metadata fetched during the session.
+  - **Compiler ABI metadata** — code-hash-to-ABI mappings registered via `/acton_registerCompilerAbis`.
+  - **CAS entries** — serialized cells, message payloads, and code BOCs referenced by hash.
+  - **Pending message pools** — in-flight internal and external messages that had not yet been processed.
+</Accordion>
+
+A restored snapshot brings back not just contract state and balances but also explorer-oriented metadata, so the bundled UI reflects the same labels and ABI information as the session that created the snapshot.
+
+## Compatibility notes
+
+<Note>
+  Snapshots are versioned. Loading a file whose `version` field does not match the supported version fails immediately with a clear error — the node will not start with an incompatible snapshot. Snapshot format compatibility may change across future Acton releases; regenerate shared snapshots after upgrading.
+</Note>
+
+## Configuring persistence in `Acton.toml`
+
+Set default persistence options in `Acton.toml` so you do not need to pass flags on every invocation. CLI flags override these values when provided:
+
+```toml
+[localnet]
+port = 3010
+db-path = ".acton/localnet.db"
+```
+
+For snapshot-based workflows you can set the paths directly:
+
+```toml
+[localnet]
+port = 3010
+# No db-path — use snapshot round-trip instead
+```
+
+Then always start with the explicit flags:
+
+```bash
+acton localnet start \
+  --load-state snapshots/team-baseline.json \
+  --dump-state snapshots/team-baseline.json
+```
+
+## Choosing a strategy
+
+| Use case | Recommended mode |
+|---|---|
+| Stable, long-lived local environment | `--db-path` |
+| Portable, git-friendly, shareable state | `--load-state` + `--dump-state` |
+| Reproducible CI baseline | Committed snapshot + `--load-state` |
+| Fast ad-hoc experimentation | In-memory (no flags) |
+| Historical fork baseline for regression tests | Fork + `--dump-state`, then `--load-state` in CI |
+
+## Snapshot workflow example for CI
+
+<Steps>
+  <Step title="Create a baseline snapshot locally">
+    Start the node, deploy your contracts and seed data, then dump a snapshot:
+    ```bash
+    acton localnet start --port 3010 --accounts deployer &
+    # ... run your seed scripts ...
+    curl -s -X POST "http://127.0.0.1:3010/acton_dumpState" \
+      -H "Content-Type: application/json" \
+      -d '{"path": "snapshots/ci-baseline.json"}'
+    ```
+  </Step>
+
+  <Step title="Commit the snapshot">
+    ```bash
+    git add snapshots/ci-baseline.json
+    git commit -m "chore: update localnet CI baseline snapshot"
+    ```
+  </Step>
+
+  <Step title="Use the snapshot in CI">
+    ```bash
+    acton localnet start \
+      --load-state snapshots/ci-baseline.json \
+      --port 3010 &
+    # Wait for the node to be ready
+    curl --retry 5 --retry-connrefused -s \
+      "http://127.0.0.1:3010/api/v2/getMasterchainInfo"
+    # Run integration tests
+    cargo test --test integration
+    ```
+  </Step>
+</Steps>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Forking from Testnet / Mainnet" href="/guides/localnet/forking" icon="code-branch">
+    Combine fork mode with snapshot export to create a portable baseline from real chain state.
+  </Card>
+  <Card title="Getting Started" href="/guides/localnet/getting-started" icon="play">
+    Review node startup, faucet usage, and startup account configuration.
+  </Card>
+</CardGroup>

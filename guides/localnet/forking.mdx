@@ -1,0 +1,184 @@
+---
+title: "Forking Testnet or Mainnet State into Acton Localnet"
+sidebarTitle: "Forking"
+description: "Pull live testnet or mainnet account state into your local node to test against real contracts and reproduce on-chain bugs locally."
+---
+
+Fork mode allows the local node to resolve account state from a remote network — testnet or mainnet — while executing all transactions locally. When the node receives a request for an account it has not yet cached, it fetches that account's current state from the remote network on demand and stores it locally from that point on. All subsequent reads and writes happen locally; the remote network is never modified. This lets you interact with real deployed contracts, test against live jetton or NFT state, and reproduce mainnet bugs in a fully controlled environment without spending real TON or waiting for testnet finality.
+
+## Starting with fork mode
+
+<Tabs>
+  <Tab title="Fork testnet">
+    ```bash
+    acton localnet start --fork-net testnet
+    ```
+  </Tab>
+  <Tab title="Fork mainnet">
+    ```bash
+    acton localnet start --fork-net mainnet
+    ```
+  </Tab>
+  <Tab title="Fork with custom port">
+    ```bash
+    acton localnet start --fork-net testnet --port 3010
+    ```
+  </Tab>
+</Tabs>
+
+When the node starts in fork mode, the `acton_nodeInfo` control endpoint reports the remote state source and current fork block:
+
+```bash
+curl -s "http://127.0.0.1:3010/acton_nodeInfo"
+```
+
+```json
+{
+  "uptime_seconds": 12,
+  "latest_seqno": 1,
+  "state_source": "remote",
+  "fork_network": "testnet",
+  "fork_block_number": null
+}
+```
+
+## Providing an API key
+
+Acton fetches remote state from TonCenter. For sustained development use, set the matching environment variable before starting the node:
+
+<Tabs>
+  <Tab title="Testnet">
+    ```bash
+    TONCENTER_TESTNET_API_KEY=your_api_key_here \
+      acton localnet start --fork-net testnet
+    ```
+  </Tab>
+  <Tab title="Mainnet">
+    ```bash
+    TONCENTER_MAINNET_API_KEY=your_api_key_here \
+      acton localnet start --fork-net mainnet
+    ```
+  </Tab>
+</Tabs>
+
+Acton reads these environment variables automatically. Without an API key the node still works but may be rate-limited by TonCenter on sustained workloads.
+
+## Forking at a historical block
+
+Pin the fork to a specific masterchain block sequence number to get a deterministic snapshot of the chain state at that point in time. This is useful for reproducing bugs that depended on state at a particular block or for running regression tests against a known-good historical state:
+
+```bash
+acton localnet start --fork-net testnet --fork-block-number 55000000
+```
+
+```bash
+acton localnet start --fork-net mainnet --fork-block-number 48000000
+```
+
+Account state fetched from the remote network will reflect the chain at that block. Locally executed transactions build on top of that historical baseline.
+
+<Note>
+  Historical block requests require TonCenter to have an archive node available for the target network. Very old blocks may not be accessible depending on your API tier.
+</Note>
+
+## Configuring fork defaults in `Acton.toml`
+
+Instead of passing fork flags on every invocation, set defaults in `Acton.toml` under `[localnet]`. CLI flags override these values when you need to switch networks for a single run:
+
+```toml
+[localnet]
+fork-net = "testnet"
+fork-block-number = 55000000
+```
+
+With this configuration in place, a bare `acton localnet start` automatically forks from testnet at block 55 000 000.
+
+## What gets forked
+
+When fork mode is active, the following data is sourced from the remote network:
+
+- **Account state** — balance, code, data cell, and status for any address the local node has not yet cached.
+- **Chain config parameters** — global network configuration (e.g. gas prices, elector address) is pulled from the remote network at the fork block.
+
+<Accordion title="What is NOT fetched from the remote network">
+  - Transaction history prior to the fork point — the local node only keeps transactions it executes itself.
+  - Messages that were in flight at the fork block — only account state snapshots are pulled.
+  - Block history — blocks are synthetic and local; seqno starts from 1 locally regardless of the fork block.
+</Accordion>
+
+## Common use cases
+
+<CardGroup cols={2}>
+  <Card title="Test against a real deployed contract" icon="vial">
+    Fork mainnet and interact with a live jetton master, DEX pool, or NFT collection without any local deployment. The node fetches the contract state on demand.
+  </Card>
+  <Card title="Reproduce a mainnet bug" icon="bug">
+    Pin `--fork-block-number` to the block where the issue occurred and replay the transaction locally with full debug access.
+  </Card>
+  <Card title="Integration-test an upgrade" icon="arrow-up-from-bracket">
+    Fork the current testnet state, deploy your upgraded contract version locally, and run your full test suite against realistic surrounding state.
+  </Card>
+  <Card title="Historical regression testing" icon="clock-rotate-left">
+    Pin the fork to a well-known block and commit the resulting JSON snapshot. Every CI run starts from an identical chain state regardless of what has happened on-chain since.
+  </Card>
+</CardGroup>
+
+## Combining fork mode with other flags
+
+Fork mode composes with the rest of the local node feature set:
+
+```bash
+# Fork testnet at a specific block, persist state to SQLite, start on port 3010
+TONCENTER_TESTNET_API_KEY=your_key \
+  acton localnet start \
+    --fork-net testnet \
+    --fork-block-number 55000000 \
+    --db-path .acton/localnet.db \
+    --port 3010
+```
+
+```bash
+# Fork mainnet, bootstrap deployer wallet, dump snapshot on shutdown
+TONCENTER_MAINNET_API_KEY=your_key \
+  acton localnet start \
+    --fork-net mainnet \
+    --accounts deployer \
+    --dump-state snapshots/mainnet-fork.json
+```
+
+<Warning>
+  When you use `--load-state` together with `--fork-net`, the snapshot is applied first and accounts already cached in the snapshot are served from local state. New accounts not in the snapshot are still fetched from the remote network. `--load-state` and `--db-path` cannot be combined in the same run.
+</Warning>
+
+## Verifying fork state for an address
+
+After starting in fork mode, look up a well-known mainnet or testnet address to confirm that state is being proxied correctly:
+
+```bash
+# Check account state — should reflect the remote balance
+curl -s "http://127.0.0.1:3010/api/v2/getAddressInformation?address=<REAL_ADDRESS>"
+```
+
+```bash
+# Run a get-method on a real contract
+curl -s -X POST "http://127.0.0.1:3010/api/v2/runGetMethod" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "address": "<REAL_CONTRACT_ADDRESS>",
+    "method": "get_jetton_data",
+    "stack": []
+  }'
+```
+
+Once fetched, the account state is cached locally and subsequent requests are served without hitting the remote network.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Persistence & Snapshots" href="/guides/localnet/persistence" icon="database">
+    Save a forked chain state to SQLite or export it as a JSON snapshot for reproducible CI runs.
+  </Card>
+  <Card title="Getting Started" href="/guides/localnet/getting-started" icon="play">
+    Review the full startup workflow, faucet usage, and API verification steps.
+  </Card>
+</CardGroup>

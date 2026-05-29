@@ -1,0 +1,227 @@
+---
+title: "acton localnet — local TON development network"
+sidebarTitle: "localnet"
+description: "Start and control a local TON-compatible development node with fork support, faucet funding, persistent state, and a built-in explorer UI."
+---
+
+`acton localnet` runs a full TON-compatible development node on your machine, giving you a zero-cost sandbox where transactions confirm instantly, wallets can be funded on demand, and the entire network state can be snapshotted and restored. The local node exposes a TonCenter-compatible API at `http://127.0.0.1:<port>` and includes a built-in single-page explorer UI at the root path. When fork mode is enabled, Acton pulls remote account state from testnet or mainnet on demand, so you can develop against real deployed contracts without waiting for a remote network.
+
+## Synopsis
+
+```bash
+acton localnet <SUBCOMMAND> [OPTIONS]
+```
+
+## Subcommands
+
+| Subcommand | Description |
+|---|---|
+| `start` | Start the local TON network node |
+| `airdrop` | Send TON from the local faucet to an address |
+| `status` | Inspect the status of a running localnet |
+
+---
+
+### acton localnet start
+
+Start the local TON network. The node runs in the foreground on `127.0.0.1:<port>` until you stop it with `Ctrl+C` or kill the process.
+
+**Synopsis**
+
+```bash
+acton localnet start [OPTIONS]
+```
+
+**Options**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--port` | number | `5411` | Port for the localnet API server |
+| `--fork-net` | string | — | Remote network to fork account state from: `testnet` or `mainnet` |
+| `--fork-block-number` | number | — | Historical block seqno to fork from (pins to a specific state) |
+| `--accounts` | strings | — | Comma-separated wallet names to auto-fund and deploy on startup |
+| `--db-path` | path | — | SQLite database path for persistent node state across restarts |
+| `--load-state` | path | — | Load node state from a JSON snapshot before starting |
+| `--dump-state` | path | — | Write a JSON snapshot on graceful shutdown |
+| `--rate-limit` | number | — | Max `/api/*` requests per second (simulates provider rate limits) |
+
+<Note>
+  `--load-state` and `--db-path` are mutually exclusive — you cannot use both in the same run.
+</Note>
+
+---
+
+### acton localnet airdrop
+
+Send TON from the local faucet to any address. The localnet must already be running.
+
+**Synopsis**
+
+```bash
+acton localnet airdrop <ADDRESS> [OPTIONS]
+```
+
+**Options**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `ADDRESS` | string | **required** | Recipient address (friendly or raw format) |
+| `-a`, `--amount` | number | `100` | Amount of TON to send |
+| `-p`, `--port` | number | `5411` | Localnet server port |
+
+---
+
+### acton localnet status
+
+Inspect whether a localnet is running on the given port and print basic node information.
+
+**Synopsis**
+
+```bash
+acton localnet status [OPTIONS]
+```
+
+**Options**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `-p`, `--port` | number | `5411` | Localnet server port to check |
+| `--json` | flag | — | Print machine-readable JSON (includes `running` field for automation) |
+
+---
+
+## Acton.toml configuration
+
+Store localnet defaults in `Acton.toml` to avoid repeating flags on every start. CLI flags override config values for the current invocation.
+
+```toml title="Acton.toml"
+[localnet]
+port = 5411
+fork-net = "testnet"
+fork-block-number = 55000000
+accounts = ["deployer", "user"]
+rate-limit = 25
+```
+
+## API endpoints
+
+The localnet server exposes:
+
+| Endpoint | Description |
+|---|---|
+| `GET /` | Built-in single-page explorer UI |
+| `GET /api/v2/*` | TonCenter v2 compatible API |
+| `GET /api/v3/*` | TonCenter v3 compatible API |
+| `POST /api/v2/sendBoc` | Send external-in messages |
+| `POST /api/v3/message` | Send external-in messages |
+| `GET /acton_nodeInfo` | Uptime, latest block seqno, active state source |
+| `POST /acton_dumpState` | Write a JSON snapshot without stopping the server |
+| `POST /acton_loadState` | Replace current state from a JSON snapshot |
+| `POST /acton_setShardAccount` | Replace an account's `ShardAccount` with a base64 BoC |
+| `POST /acton_sendInternalMessage` | Inject a raw internal message BoC |
+
+<Note>
+  TonCenter-compatible message endpoints (`/api/v2/sendBoc`, `/api/v3/message`) accept **external-in messages only**. Use `/acton_sendInternalMessage` when you need to inject a raw internal message directly.
+</Note>
+
+<Warning>
+  Control endpoints (`acton_*`) are unauthenticated and intended for local development only. Do not expose the localnet server on a public network interface.
+</Warning>
+
+## Fork mode
+
+Fork mode lets you develop against real deployed contract state without querying a live public RPC for every transaction. When a fork is enabled, Acton pulls unknown account state from the remote network on first access and caches it locally for the session.
+
+```bash
+# Fork testnet at the current block
+acton localnet start --fork-net testnet
+
+# Fork testnet at a specific historical block (pins to that state)
+acton localnet start --fork-net testnet --fork-block-number 55000000
+```
+
+When forking from a built-in network, set `TONCENTER_TESTNET_API_KEY` or `TONCENTER_MAINNET_API_KEY` in your environment or `.env` file to avoid rate-limit errors during fork resolution.
+
+## Persistence
+
+<Tabs>
+  <Tab title="SQLite (persistent across restarts)">
+    ```bash
+    acton localnet start --db-path build/localnet.db
+    ```
+    State is stored in a SQLite database and survives process restarts. Use this for long-running development sessions where you want deployed contracts to persist.
+  </Tab>
+  <Tab title="JSON snapshots (portable state)">
+    ```bash
+    # Save state on shutdown
+    acton localnet start --dump-state snapshots/localnet.json
+
+    # Restore state on next startup
+    acton localnet start --load-state snapshots/localnet.json \
+                         --dump-state snapshots/localnet.json
+    ```
+    JSON snapshots are portable — commit them to share a pre-configured localnet state with your team.
+  </Tab>
+  <Tab title="Ephemeral (default)">
+    ```bash
+    acton localnet start
+    ```
+    Without `--db-path` or `--load-state`, all state is in-memory only. The node resets completely on each start. Ideal for CI and clean integration testing.
+  </Tab>
+</Tabs>
+
+## Auto-funded startup accounts
+
+The `--accounts` flag (or `[localnet].accounts` in `Acton.toml`) automatically deploys and funds the named wallets from `wallets.toml` when the node starts. This eliminates the manual airdrop step for common development wallets:
+
+```bash
+acton localnet start --accounts deployer,user
+```
+
+```toml title="Acton.toml"
+[localnet]
+accounts = ["deployer", "user"]
+```
+
+## Examples
+
+<CodeGroup>
+
+```bash Start with defaults (port 5411, ephemeral)
+acton localnet start
+```
+
+```bash Fork testnet at a specific block
+acton localnet start --fork-net testnet --fork-block-number 55000000
+```
+
+```bash Start with persistent SQLite and auto-funded wallets
+acton localnet start --accounts deployer,user --db-path build/localnet.db
+```
+
+```bash Load and dump JSON state snapshots
+acton localnet start \
+  --load-state snapshots/localnet.json \
+  --dump-state snapshots/localnet.json
+```
+
+```bash Airdrop 50 TON to an address
+acton localnet airdrop UQA_ftKIJsHEAE_UgtFOUK15hPzycZooFuUr8duyY9T3kwwM --amount 50
+```
+
+```bash Check if localnet is running (machine-readable)
+acton localnet status --json
+```
+
+</CodeGroup>
+
+## Exit status
+
+- `0` — the selected subcommand completed successfully; for `status`, this includes the port not running (check the `running` field in `--json` output for automation)
+- `1` — startup failed because of port binding, state loading, fork initialization, faucet handling, or a control query failure
+
+## See Also
+
+- [Local development node guide](/guides/localnet/overview)
+- [`acton wallet`](/commands/wallet) — create wallets to use with `--accounts`
+- [`acton script`](/commands/script) — run scripts against localnet with `--net localnet`

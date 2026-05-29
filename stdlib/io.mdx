@@ -1,0 +1,212 @@
+---
+title: "Acton IO, Fmt, Fs, Env, and Prompts Module Reference"
+sidebarTitle: "IO"
+description: "Reference for @acton/io, fmt, fs, env, and prompts — print, format, read files, access environment variables, and prompt users in scripts."
+---
+
+Acton's host-side I/O modules give scripts and tests a complete toolkit for interacting with the outside world: printing formatted output to the terminal, reading and writing files, accessing environment variables, and prompting users for confirmation before irreversible actions. These modules all run on the Acton host — they are not available inside TVM-executed contract code.
+
+## @acton/io
+
+The `io` module provides `println` and `eprintln` for standard-output and standard-error respectively. Both accept up to six values of any type and support a format-string mini-language when the first argument is a `string`.
+
+```tolk
+import "@acton/io"
+```
+
+### println
+
+```tolk
+fun println<T1, T2 = void, T3 = void, T4 = void, T5 = void, T6 = void>(
+    value1: T1,
+    value2: T2,
+    value3: T3,
+    value4: T4,
+    value5: T5,
+    value6: T6,
+): void
+```
+
+When the first argument is a `string`, `println` attempts to interpret it as a format string. Remaining arguments fill in the placeholders in order. Unconsumed arguments are appended after the formatted text, separated by spaces. If the string is not a valid format string, it is printed literally.
+
+#### Format Placeholders
+
+| Placeholder | Meaning |
+|-------------|---------|
+| `{}` | Default formatter output |
+| `{:x}` | Lowercase hexadecimal integer, no `0x` prefix |
+| `{:ton}` | Integer nanoton amount formatted as `<value> TON` |
+| `{:cell-tree}` | Cell, slice, builder, or `Cell<T>` rendered as a tree |
+| `{{` / `}}` | Escaped literal brace |
+
+#### Examples
+
+```tolk
+import "@acton/io"
+
+// Basic types
+println(42);
+println("Hello, world!");
+println(true);
+
+// Structs are printed with field names
+println(Point { x: 10, y: 20 }); // Point { x: 10, y: 20 }
+
+// Format strings
+println("Counter value: {}", counter);
+println("Transfer {:ton} from {} to {}", amount, sender, recipient);
+println("Code hash: 0x{:x}", codeCell.hash());
+
+// Cell tree debugging
+println("Storage layout: {:cell-tree}", contract.getData());
+
+// Multiple unformatted values
+println(1, 2, 3); // "1 2 3"
+```
+
+### eprintln
+
+```tolk
+fun eprintln(str: string): void
+```
+
+Prints a string to standard error. Useful for distinguishing diagnostic output from script output when composing pipelines.
+
+```tolk
+eprintln("Warning: contract balance is below minimum");
+```
+
+---
+
+## @acton/fmt
+
+The `fmt` module provides the underlying string formatting and parsing primitives used by `println`. You can use it directly when you need to build a formatted string value rather than print it immediately.
+
+```tolk
+import "@acton/fmt"
+```
+
+`fmt` is primarily an implementation detail of `io`, but it is publicly importable for cases where you need to compose a string for logging, file output, or passing to a prompt.
+
+---
+
+## @acton/fs
+
+The `fs` module gives scripts access to the local file system for reading and writing files. This is useful for deployment scripts that persist contract addresses, configuration, or build artifacts.
+
+```tolk
+import "@acton/fs"
+```
+
+<Tip>
+File paths in `fs` are resolved relative to the current working directory where `acton run` is invoked, not from the project root. Use absolute paths or ensure your script is invoked from a predictable location.
+</Tip>
+
+Common patterns:
+
+```tolk
+import "@acton/fs"
+import "@acton/io"
+
+fun main() {
+    // Read a configuration file
+    val configJson = fs.readFile("deploy-config.json");
+
+    // Write deployment result for later use
+    fs.writeFile("deployed-addresses.json", buildAddressJson(counter.address));
+
+    println("Addresses saved to deployed-addresses.json");
+}
+```
+
+---
+
+## @acton/env
+
+The `env` module provides access to environment variables. Scripts that run in CI/CD pipelines or need to read secrets (API keys, mnemonics) from the environment use this module instead of hard-coding values.
+
+```tolk
+import "@acton/env"
+```
+
+```tolk
+import "@acton/env"
+import "@acton/io"
+
+fun main() {
+    // Read a required variable — fails if not set
+    val rpcUrl = env.get("TON_RPC_URL");
+
+    // Read an optional variable with a default
+    val network = env.getOrDefault("TON_NETWORK", "testnet");
+
+    println("Connecting to {} via {}", network, rpcUrl);
+}
+```
+
+---
+
+## @acton/prompts
+
+The `prompts` module provides interactive CLI prompts for deployment scripts that need user confirmation before executing irreversible on-chain actions.
+
+```tolk
+import "@acton/prompts"
+```
+
+```tolk
+import "@acton/prompts"
+import "@acton/io"
+import "@acton/emulation/scripts"
+import "@acton/emulation/network"
+
+fun main() {
+    val deployer = scripts.wallet("deployer");
+    val counter = Counter.fromStorage({ id: 1, counter: 0 });
+
+    println("About to deploy Counter to {}", counter.address);
+
+    // Ask for confirmation before spending real TON
+    val confirmed = prompts.confirm("Proceed with deployment?");
+    if (!confirmed) {
+        println("Aborted.");
+        return;
+    }
+
+    val result = net.send(deployer.address, counter.deploy(deployer.address, ton("0.05")));
+    result.waitForFirstTransaction();
+    println("Done!");
+}
+```
+
+---
+
+## Using IO in Tests
+
+`println` is fully available in test files and is a primary tool for debugging unexpected transaction outcomes:
+
+```tolk
+import "@acton/testing/expect"
+import "@acton/emulation/testing"
+import "@acton/emulation/network"
+import "@acton/io"
+
+get fun `test jetton transfer`() {
+    val deployer = testing.treasury("deployer");
+    val recipient = testing.treasury("recipient");
+
+    val txs = net.send(deployer.address, createMessage({
+        bounce: false,
+        value: ton("0.5"),
+        dest: jettonWallet.address,
+        body: Transfer { amount: ton("10"), to: recipient.address },
+    }));
+
+    println(txs); // prints the full transaction tree to stdout
+
+    expect(txs).toHaveAllSuccessfulTxs();
+
+    val balance = net.runGetMethod<coins>(recipientWallet.address, "get_wallet_data");
+    println("Recipient balance: {:ton}", balance);
+}
+```

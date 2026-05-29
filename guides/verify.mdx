@@ -1,0 +1,151 @@
+---
+title: "Verifying Deployed TON Contracts with Acton"
+sidebarTitle: "Verify"
+description: "Use acton verify to prove that deployed bytecode matches Tolk source, submit verification to TON Verifier on testnet or mainnet, and troubleshoot bytecode mismatches."
+---
+
+Source code verification proves that the bytecode deployed at a specific contract address was produced from the Tolk source files in the current Acton project. When verification succeeds, anyone can inspect the source on [TON Verifier](https://verifier.ton.org) and independently confirm that the deployed code behaves as described. Acton handles the entire flow: it compiles the contract locally, uploads the source package to the TON Verifier backend, collects the required verifier signatures, and can broadcast the final on-chain verification transaction.
+
+## Prerequisites
+
+<Warning>
+  Verification fails if the local sources do not compile to the same bytecode as the deployed contract. Always run `acton verify` from the same Git revision and with the same compiler configuration that was used for the original deployment. A different Tolk compiler version or modified source file will produce a different code hash and the verifier will reject it.
+</Warning>
+
+Before running `acton verify`, ensure:
+
+- A wallet is configured in `wallets.toml` (or use `--tonconnect` for a browser wallet).
+- The contract is defined in `[contracts]` in `Acton.toml`.
+- The contract has been deployed and you have its on-chain address.
+- The wallet has at least `0.1 TON` plus network fees (unless using `--dry-run`).
+
+Only Tolk contracts can be verified. Arbitrary `.boc` contracts are not supported by the verifier flow.
+
+## Verify on testnet
+
+`testnet` is the default network. Pass the contract name and its deployed address:
+
+```bash
+acton verify Counter --address EQDt7LL...
+```
+
+If the project defines only one contract, the name can be omitted. If multiple contracts are available and none is named, Acton prompts for a selection. If `--address` is omitted, Acton prompts for the address.
+
+On success, Acton prints a link to the verified contract:
+
+```
+✓ Contract verification completed!
+View at: https://verifier.ton.org/EQBUSJ...?testnet
+```
+
+## Verify on mainnet
+
+Pass `--net mainnet` to target a mainnet deployment:
+
+```bash
+acton verify Counter --address UQDt7LL... --net mainnet
+```
+
+## Choose a wallet
+
+When more than one wallet is configured, use `--wallet` to pick the sender for the final verification transaction:
+
+```bash
+acton verify Counter --address EQDt7LL... --wallet deployer
+```
+
+If exactly one wallet is configured, Acton selects it automatically. If multiple wallets are available and `--wallet` is omitted, Acton prompts for a selection.
+
+## Use TON Connect
+
+Pass `--tonconnect` to approve the final verification transaction through a browser wallet instead of a `wallets.toml` entry:
+
+```bash
+acton verify Counter --address EQDt7LL... --net mainnet --tonconnect
+```
+
+Acton starts a local TON Connect page and opens it in the browser. If the default port is already in use, specify an alternative with `--tonconnect-port <PORT>`.
+
+## Dry-run mode
+
+Use `--dry-run` to run the full verifier flow without broadcasting the final transaction:
+
+```bash
+acton verify Counter --address EQDt7LL... --dry-run
+```
+
+`--dry-run` still compiles the contract, uploads the source package, and collects verifier signatures. It skips only the final blockchain transaction. Use this mode to confirm the verifier backend accepts the source before spending TON.
+
+<Tip>
+  If the verifier backend reports that the same code hash is already verified, `acton verify` exits successfully without sending another transaction, even outside `--dry-run`.
+</Tip>
+
+## Pin the compiler version
+
+If the deployed contract was built with a specific Tolk compiler version, pass it explicitly to ensure the same bytecode is reproduced:
+
+```bash
+acton verify Counter --address EQDt7LL... --compiler-version 0.14.0
+```
+
+## Troubleshooting bytecode mismatches
+
+A verification failure almost always means that the local sources or compiler settings differ from what was used during deployment.
+
+Common causes:
+
+- Different Git revision than the one used for deployment.
+- Different Tolk compiler version.
+- Changed or regenerated source files (generated wrappers, imported helpers).
+- Wrong contract name or deployed address.
+
+Enable debug output to see the compiler version, collected source files, and backend overrides:
+
+```bash
+ACTON_VERIFY_DEBUG=1 \
+acton verify Counter --address EQDt7LL... --dry-run
+```
+
+To test against a specific verifier backend:
+
+```bash
+ACTON_VERIFY_BACKEND=http://127.0.0.1:8080 \
+ACTON_VERIFY_DEBUG=1 \
+acton verify Counter --address EQDt7LL... --net mainnet --dry-run
+```
+
+To replace the signer backend list entirely:
+
+```bash
+ACTON_VERIFY_BACKEND=http://127.0.0.1:8080 \
+ACTON_VERIFY_BACKENDS=http://127.0.0.1:8081,http://127.0.0.1:8082 \
+acton verify Counter --address EQDt7LL... --net mainnet --dry-run
+```
+
+If the backend returns a transient `5xx` error, retry the command. Acton automatically retries source upload failures before exiting.
+
+## Verification flow overview
+
+<Steps>
+
+### Compile locally
+
+Acton compiles the contract from the local source files using the configured (or pinned) Tolk compiler version and produces a `.boc` artifact.
+
+### Upload source package
+
+The source files and compiler metadata are bundled and uploaded to the TON Verifier backend.
+
+### Collect signatures
+
+The verifier backend compiles the submitted sources independently and checks that the resulting code hash matches the deployed contract. Multiple backend signers each sign the verification result.
+
+### Broadcast the transaction (unless `--dry-run`)
+
+Acton sends the final on-chain verification transaction (`0.1 TON` plus fees) so the result is permanently recorded on the TON blockchain.
+
+### View on TON Verifier
+
+After success, the contract source is publicly visible at `https://verifier.ton.org/<address>` (append `?testnet` for testnet contracts).
+
+</Steps>

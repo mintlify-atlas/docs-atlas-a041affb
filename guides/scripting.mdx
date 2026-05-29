@@ -1,0 +1,275 @@
+---
+title: "Running Tolk Scripts for Blockchain Interaction"
+sidebarTitle: "Scripting"
+description: "Write and run standalone Tolk scripts with acton script: wallet access, net.send(), argument passing, local emulation vs network broadcast, and deploy examples."
+---
+
+Acton lets you run individual Tolk files as standalone executable scripts through the `acton script` command. Scripts share the same standard library as tests — you can deploy contracts, send messages, call get methods, and query chain state — but instead of a test harness, scripts define a `main()` function as their entry point. The same script file runs against a local emulator by default and broadcasts to testnet or mainnet when you pass `--net`.
+
+## Hello World script
+
+The simplest script imports `@acton/io` for output and defines `main()`:
+
+```tolk title="scripts/hello.tolk"
+import "@acton/io"
+
+fun main() {
+    println("Hello World")
+}
+```
+
+```bash
+acton script scripts/hello.tolk
+# Hello World
+```
+
+## Passing arguments to scripts
+
+`main()` can accept parameters. Acton reads the ABI for `main()` and parses CLI arguments against the declared parameter types — one CLI argument per parameter, in order:
+
+```tolk title="scripts/add.tolk"
+import "@acton/io"
+
+fun main(a: int, b: int) {
+    println("The sum is: {}", a + b);
+}
+```
+
+```bash
+acton script scripts/add.tolk 10 20
+# The sum is: 30
+```
+
+### Supported argument types
+
+| Type | CLI format |
+|---|---|
+| `int`, `uint*`, `coins` | Numeric literal, e.g., `42` |
+| `bool` | `true` or `false` |
+| `string` | Plain shell argument or quoted with escapes |
+| `address` | User-friendly TON address string |
+| `address?` | Address or `null` |
+| `cell`, `slice`, `bitsN` | Hex BoC format |
+| `array<T>` | `"[10 20 30]"` or `"[10, 20, 30]"` |
+| nullable types | Value or `null` |
+
+<Note>
+  If a shell argument contains spaces or square brackets, quote it to pass as a single value.
+</Note>
+
+### Unsupported types
+
+`tuple`, `map`, `dict`, `builder`, `any_address`, structs, aliases, unions, and `lisp_list` are not currently supported as direct CLI arguments.
+
+## Local emulation vs network broadcast
+
+Scripts run in one of two modes:
+
+| Aspect | Local mode (default) | Broadcast mode (`--net`) |
+|---|---|---|
+| Blockchain | Local TVM emulator | Real TON blockchain |
+| Wallets | Generated test wallets | Configured real wallets |
+| TON spent | None (emulated) | Real Toncoin |
+| Transaction speed | Instant | Real network timing |
+| State persistence | Lost after script ends | Permanent on chain |
+
+Always validate a script locally before broadcasting:
+
+```bash
+# Test locally first
+acton script scripts/deploy.tolk
+
+# Then broadcast to testnet
+acton script scripts/deploy.tolk --net testnet
+
+# And finally to mainnet
+acton script scripts/deploy.tolk --net mainnet
+```
+
+## Wallet access in scripts
+
+The `scripts.wallet()` function is the script-side equivalent of `testing.treasury()` in tests. It returns a wallet struct with an `address` field:
+
+```tolk title="scripts/deploy.tolk"
+import "@acton/emulation/scripts"
+import "@acton/io"
+import "@acton/prompts"
+
+fun main() {
+    val deployer = scripts.wallet(promptWallet("Select a wallet:"));
+    println("Deployer address: {}", deployer.address);
+}
+```
+
+- **Without `--net`**: creates a local test wallet backed by the emulator treasury (10,000 TON balance).
+- **With `--net`**: resolves the named wallet from `wallets.toml` or `global.wallets.toml`.
+- **With `--net --tonconnect`**: `promptWallet()` returns `"tonconnect"`, and `scripts.wallet()` connects to an external wallet via TON Connect.
+
+```bash
+acton script scripts/deploy.tolk --net testnet
+acton script scripts/deploy.tolk --net testnet --tonconnect
+```
+
+## Sending messages with net.send()
+
+Use `net.send()` to send messages from a wallet address. The call returns a `SendResultList`:
+
+```tolk title="scripts/interact.tolk"
+import "@acton/emulation/scripts"
+import "@acton/emulation/network"
+
+fun main() {
+    val deployer = scripts.wallet("deployer");
+
+    val msg = createMessage({
+        bounce: true,
+        value: ton("0.1"),
+        dest: someContractAddress,
+        body: SomeMessage { param: 42 },
+    });
+
+    net.send(deployer.address, msg);
+    println("Message sent!");
+}
+```
+
+<Warning>
+  Be careful with `--net`. While local tests allow arbitrary large values, sending messages with large values to the real blockchain spends real TON. Use smaller values like `ton("0.05")` or `ton("0.1")` for most operations.
+</Warning>
+
+## Waiting for transactions
+
+After sending a message, use the wait helpers on `SendResultList`:
+
+```tolk title="scripts/deploy.tolk"
+import "@acton/emulation/scripts"
+
+fun main() {
+    val deployer = scripts.wallet("deployer");
+
+    val counter = Counter.fromStorage({
+        id: 8,
+        owner: deployer.address,
+        counter: 0,
+    });
+
+    // Wait for the first on-chain transaction
+    val deployResult = counter.deploy(deployer.address, { value: ton("0.05") });
+    if (deployResult.waitForFirstTransaction() == null) {
+        println("Deployment timed out");
+        return;
+    }
+
+    println("Counter deployed at {}", counter.address);
+
+    // Wait for the complete message chain
+    val increaseResult = counter.sendIncreaseCounter(deployer.address, 5, { value: ton("0.05") });
+    increaseResult.waitForTrace();
+
+    println("Counter increased!");
+}
+```
+
+| Helper | Behavior |
+|---|---|
+| `waitForFirstTransaction()` | Polls until the first transaction from the result list is confirmed. Returns `null` on timeout. |
+| `waitForTrace()` | Waits for the complete descendant transaction chain. Returns `null` on timeout. |
+
+Both helpers adapt automatically: in local mode they return the already-processed transaction immediately; in broadcast mode they poll the network.
+
+## Querying blockchain state
+
+Use `net.runGetMethod()` to read contract state:
+
+```tolk
+val counterAddress = address("EQDt7LL...");
+val currentValue = net.runGetMethod<int>(counterAddress, "currentCounter");
+println("Counter value: {}", currentValue);
+```
+
+By default, `net.runGetMethod()` queries the **local emulator state**. To query real deployed contracts without broadcasting, use `--fork-net`:
+
+```bash
+acton script scripts/query.tolk --fork-net testnet
+acton script scripts/query.tolk --fork-net mainnet
+```
+
+`--fork-net` fetches and caches account state from the real network for the duration of the script. When the script runs with `--net`, the broadcast network automatically becomes the default read network — no separate `--fork-net` is needed.
+
+## Complete deploy script example
+
+```tolk title="scripts/deploy.tolk"
+import "@acton/io"
+import "@acton/emulation/network"
+import "@acton/emulation/scripts"
+import "@acton/build"
+import "@acton/prompts"
+import "@acton/testing/assert"
+
+import "@wrappers/Counter.gen"
+import "@contracts/types"
+
+fun main() {
+    val deployer = scripts.wallet(promptWallet("Select a wallet:"));
+
+    val counter = Counter.fromStorage({
+        owner: deployer.address,
+        id: 123,
+        counter: 0,
+    });
+
+    println("Deploying counter to {}", counter.address);
+
+    val result = counter.deploy(deployer.address, { value: ton("0.05") });
+    val trace = result.waitForTrace();
+    if (trace == null) {
+        Assert.fail("Could not find the trace, deployment has failed!");
+    }
+
+    println("Deployment complete: {}", counter.address);
+    println("On-chain counter is {}", counter.currentCounter());
+    // Pretty-print the transaction trace tree
+    println(trace);
+}
+```
+
+Run locally, then on testnet:
+
+```bash
+acton script scripts/deploy.tolk
+acton script scripts/deploy.tolk --net testnet
+```
+
+## Manually controlling broadcast mode
+
+For advanced workflows, toggle the broadcast flag at runtime:
+
+```tolk
+fun main() {
+    net.disableBroadcast();
+    // This send is emulated locally, not sent to the network
+    val result = net.send(wallet.address, msg);
+    result.waitForFirstTransaction();
+
+    net.enableBroadcast();
+    // Subsequent sends go to the real network
+}
+```
+
+Check the current mode with `net.isBroadcasting()`:
+
+```tolk
+if (net.isBroadcasting()) {
+    println("Running on real network");
+} else {
+    println("Running in emulation mode");
+}
+```
+
+<Note>
+  `net.enableBroadcast()` / `net.disableBroadcast()` toggle the runtime flag only. They do not load configured wallets after startup — real sends still require launching the script with `--net`.
+</Note>
+
+## Script exit codes
+
+Scripts terminate with an exit code equal to the `exit_code` of the `main` get method execution. The maximum exit code is 255 (Unix limitation). Any exit code larger than 255 wraps via `x % 256`.

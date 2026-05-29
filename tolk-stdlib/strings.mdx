@@ -1,0 +1,197 @@
+---
+title: "Tolk Strings Module — Runtime String Utilities for Contracts"
+sidebarTitle: "Strings"
+description: "Reference for @stdlib/strings — runtime string length, hashing, equality, integer formatting, StringBuilder, and 0x-prefixed token metadata strings."
+---
+
+The `strings` module provides runtime utilities for working with Tolk's `string` type inside TVM-executed contract code. A Tolk `string` is stored as a tree of cells in **snake format**: data bytes in the root cell, with an optional reference to the next cell carrying the continuation. This chained structure means that simple operations like measuring length or checking equality require traversing all the cells in the chain, which is why these helpers are in an optional module rather than being built-in primitives — they consume non-trivial gas.
+
+<Note>
+All functions in this module run **inside TVM** and consume gas. Measure the gas cost of `string.calculateLength()` and `string.hash()` when used in hot paths, as they traverse the full snake chain.
+</Note>
+
+## Import
+
+```tolk
+import "@stdlib/strings"
+```
+
+---
+
+## String Inspection
+
+### Depth
+
+```tolk
+fun string.depth(self): int
+```
+
+Returns the snake depth of a string — the number of cell layers in the chain. A flat string with no references has depth `0`. A two-cell chain has depth `1`.
+
+```tolk
+// "abcd" stored in a single cell: depth = 0
+// "ab" + ref "cd": depth = 1
+// "a" + ref("bc" + ref("d" + ref(""))): depth = 3
+val d = myString.depth();
+```
+
+### Length
+
+```tolk
+@inline_ref
+fun string.calculateLength(self): int
+```
+
+Calculates the total byte length of a string by traversing all cells in the snake chain. The result is in bytes, not Unicode code points.
+
+```tolk
+val len = myString.calculateLength();
+```
+
+### Hashing
+
+```tolk
+@inline_ref
+fun string.hash(self): uint256
+```
+
+Computes a content hash of a string, traversing all snake cells. Two strings with identical content but different snake layouts (e.g., `"abcd"` vs `"ab" + ref "cd"`) produce the **same hash**. Uses FNV-1a with standard 128-bit parameters.
+
+```tolk
+val h1 = "abcd".hash();
+val h2 = ("ab" + ref "cd").hash(); // same as h1
+```
+
+### Equality
+
+```tolk
+fun string.equalTo(self, another: string): bool
+```
+
+Compares two strings for content equality, considering their snake structure. `"abcd"` equals `"ab" + ref "cd"` regardless of how the bytes are distributed across cells.
+
+```tolk
+if (receivedName.equalTo("admin")) {
+    // handle admin
+}
+```
+
+---
+
+## Integer to String
+
+```tolk
+fun int.toDecimalString(self): string
+```
+
+Converts an integer to its decimal string representation. Returns a `string` (a TVM cell on the stack).
+
+```tolk
+val label = counter.toDecimalString(); // e.g. "42"
+```
+
+---
+
+## StringBuilder
+
+`StringBuilder` is a utility for building strings at runtime by appending multiple parts. The result is a valid snake-format string where each appended chunk becomes a cell in the chain.
+
+```tolk
+struct StringBuilder {
+    private chunks: array<string> = []
+}
+```
+
+### Methods
+
+```tolk
+fun StringBuilder.create(): StringBuilder
+
+fun StringBuilder.append(mutate self, s: string): self
+fun StringBuilder.appendInt(mutate self, n: int): self
+fun StringBuilder.build(self): string
+```
+
+### Usage
+
+```tolk
+import "@stdlib/strings"
+
+fun buildWelcomeMessage(userName: string, score: int): string {
+    return StringBuilder.create()
+        .append("Welcome, ")
+        .append(userName)
+        .append("! Your score: ")
+        .appendInt(score)
+        .build();
+}
+```
+
+`StringBuilder.build()` concatenates all appended chunks into a single snake chain. It throws if no `append` was called before `build`.
+
+---
+
+## 0x-Prefixed Strings (Token Metadata)
+
+TON token standards (TEP-64, TEP-74) use a convention where on-chain string metadata is prefixed with a special byte:
+
+- `0x00` — on-chain snake-encoded string
+- `0x01` — off-chain content URL
+
+```tolk
+type string_prefixed0x = string   // string whose first byte is 0x00 or 0x01
+```
+
+### Prefix Helpers
+
+```tolk
+// Given "hello", produces "\x00" + ref "hello" (0x00 prefix byte in root cell)
+fun string.prefixWith00(self): string_prefixed0x
+
+// Given "https://...", produces "\x01" + ref "https://..." (0x01 prefix byte in root cell)
+fun string.prefixWith01(self): string_prefixed0x
+```
+
+### Jetton/NFT Metadata Example
+
+```tolk
+import "@stdlib/strings"
+
+fun buildJettonContent(name: string, symbol: string, imageUrl: string): cell {
+    // Comply with TEP-64: on-chain strings use 0x00 prefix
+    val onchainName = name.prefixWith00();
+    val onchainSymbol = symbol.prefixWith00();
+
+    // Off-chain image: 0x01 prefix marks it as a URL
+    val offchainImage = imageUrl.prefixWith01();
+
+    return JettonContent {
+        name: onchainName,
+        symbol: onchainSymbol,
+        image: offchainImage,
+    }.toCell();
+}
+```
+
+---
+
+## Compile-Time String Methods (from common)
+
+The following methods are available on string literals without importing `@stdlib/strings` — they are compile-time functions from `common`:
+
+```tolk
+"str".crc32(): int           // CRC-32 of the string literal
+"str".crc16(): int           // CRC-16 (XMODEM) of the string literal
+"str".sha256(): int          // SHA-256, returned as 256-bit int
+"str".sha256_32(): int       // first 32 bits of SHA-256
+"str".hexToSlice(): slice    // hex string → bytes slice
+"str".toBase256(): int       // N-char ASCII → base-256 number
+"str".literalSlice(): slice  // raw bytes as a compile-time slice constant
+```
+
+These work only with **string literals** — passing a variable will not compile. Use them for computing opcode constants:
+
+```tolk
+const OP_TRANSFER = "transfer".crc32();     // 0xF8A7EA5 (TEP-74)
+const OP_BURN = "burn".crc32();             // 0x595F07BC
+```
